@@ -25,7 +25,7 @@ import {
   HeartHandshake,
 } from 'lucide-react';
 import Member360 from './Member360';
-import { getNormalizedMembers } from '@/lib/repositories/members';
+import { createNormalizedMember, getNormalizedMembers } from '@/lib/repositories/members';
 
 export default function MembersDirectory() {
   const { activeClub, activeBranch, currentUser } = useAuth();
@@ -35,6 +35,7 @@ export default function MembersDirectory() {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [normalizedMembers, setNormalizedMembers] = useState<Member[] | null>(null);
   const [memberLoadError, setMemberLoadError] = useState<string | null>(null);
+  const [isSavingMember, setIsSavingMember] = useState(false);
 
   // New Member Modal
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -95,35 +96,46 @@ export default function MembersDirectory() {
     return matchesSearch && matchesStatus && matchesRole;
   });
 
-  const handleAddMemberSubmit = (e: React.FormEvent) => {
+  const handleAddMemberSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeClub) return;
 
-    store.addMember(
-      {
+    const branchId = activeBranch?.id || store.getBranches(activeClub.id)[0]?.id;
+    if (!branchId) {
+      setMemberLoadError('Select or create a branch before adding a member.');
+      return;
+    }
+
+    setIsSavingMember(true);
+    setMemberLoadError(null);
+    try {
+      await createNormalizedMember({
         clubId: activeClub.id,
-        branchId: activeBranch?.id || store.getBranches(activeClub.id)[0]?.id,
+        branchId,
         fullName: newName,
         gender: newGender,
         dob: newDob,
         icPassport: newIc,
         email: newEmail,
         phone: newPhone,
+        beltRank: newBelt,
+        weightKg: newWeight,
         isAthlete: newIsAthlete,
         isVolunteer: newIsVolunteer,
-        sportData: {
-          beltRank: newBelt,
-          weightKg: newWeight,
-        },
-      },
-      currentUser?.fullName || 'Staff'
-    );
-
-    setIsAddModalOpen(false);
-    setNewName('');
-    setNewIc('');
-    setNewEmail('');
-    setNewPhone('');
+      });
+      const refreshed = await getNormalizedMembers(activeClub.id, activeBranch?.id);
+      setNormalizedMembers(refreshed);
+      setIsAddModalOpen(false);
+      setNewName('');
+      setNewIc('');
+      setNewEmail('');
+      setNewPhone('');
+    } catch (error) {
+      console.error('Unable to create normalized member.', error);
+      setMemberLoadError('Member could not be saved. Check your access and member details, then try again.');
+    } finally {
+      setIsSavingMember(false);
+    }
   };
 
   const handleSimulateCsvUpload = () => {
@@ -418,9 +430,10 @@ export default function MembersDirectory() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold text-xs rounded-xl shadow-xs"
+                  disabled={isSavingMember}
+                  className="px-5 py-2 disabled:opacity-60 disabled:cursor-not-allowed bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold text-xs rounded-xl shadow-xs"
                 >
-                  Save Member Record
+                  {isSavingMember ? 'Saving…' : 'Save Member Record'}
                 </button>
               </div>
             </form>
