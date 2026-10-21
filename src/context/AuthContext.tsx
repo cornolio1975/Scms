@@ -7,7 +7,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, SystemRole, Club, ClubBranch } from '@/types';
-import { store, INITIAL_USERS } from '@/lib/store';
+import { store } from '@/lib/store';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -47,29 +47,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: { user } } = await supabase.auth.getUser();
         
         if (user) {
-          // Fetch actual role from DB
-          const { data: userRole } = await supabase
-            .from('user_roles')
-            .select('role')
-            .eq('user_id', user.id)
-            .limit(1)
-            .single();
-            
-          const role = userRole?.role || 'MEMBER';
-          
-          // Create a mock User object from session for context compatibility
-          const mockUser: User = {
+          // Load the complete DB-backed role scope. Authorization must not be
+          // reconstructed from browser state or user metadata.
+          const [{ data: profile }, { data: roleRows }] = await Promise.all([
+            supabase
+              .from('profiles')
+              .select('full_name, phone, status')
+              .eq('id', user.id)
+              .single(),
+            supabase
+              .from('user_roles')
+              .select('role, club_id, branch_id, granted_at')
+              .eq('user_id', user.id)
+              .order('granted_at', { ascending: true }),
+          ]);
+
+          const roles = (roleRows || []).map(row => ({
+            role: row.role as SystemRole,
+            clubId: row.club_id || undefined,
+            branchId: row.branch_id || undefined,
+            grantedAt: row.granted_at || user.created_at,
+          }));
+
+          const role = roles[0]?.role || 'MEMBER';
+          const scopedRole = roles.find(assignment => assignment.role === role);
+          const profileStatus =
+            profile?.status === 'SUSPENDED'
+              ? 'Suspended'
+              : profile?.status === 'INACTIVE'
+                ? 'Inactive'
+                : 'Active';
+
+          const sessionUser: User = {
             id: user.id,
             email: user.email || '',
-            fullName: user.user_metadata?.full_name || 'User',
-            status: 'Active',
-            roles: [{ role, grantedAt: new Date().toISOString() }],
+            fullName: profile?.full_name || user.user_metadata?.full_name || 'User',
+            phone: profile?.phone || undefined,
+            status: profileStatus,
+            roles,
             activeRole: role,
+            activeClubId: scopedRole?.clubId,
+            activeBranchId: scopedRole?.branchId,
             createdAt: user.created_at,
           };
-          
-          setCurrentUser(mockUser);
-          setActiveRole(role as SystemRole);
+
+          setCurrentUser(sessionUser);
+          setActiveRole(role);
+          setActiveClubId(scopedRole?.clubId);
+          setActiveBranchId(scopedRole?.branchId);
         }
       } catch (e) {
         console.error('Failed to load session:', e);
