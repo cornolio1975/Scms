@@ -154,23 +154,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [authorizedBranches, activeBranchId]);
 
-  const login = async (email: string, _password?: string): Promise<boolean> => {
-    const user = store.users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (user) {
-      setCurrentUser(user);
-      setActiveRole(user.activeRole);
-      setActiveClubId(user.activeClubId);
-      setActiveBranchId(user.activeBranchId);
-      return true;
-    }
-    return false;
+  const login = async (email: string, password?: string): Promise<boolean> => {
+    if (!password) return false;
+    const { createClient } = await import('@/utils/supabase/client');
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return !error;
   };
 
   const logout = () => {
-    setCurrentUser(null);
-    setActiveRole('MEMBER');
-    setActiveClubId(undefined);
-    setActiveBranchId(undefined);
+    void (async () => {
+      try {
+        const { createClient } = await import('@/utils/supabase/client');
+        await createClient().auth.signOut();
+      } finally {
+        setCurrentUser(null);
+        setActiveRole('MEMBER');
+        setActiveClubId(undefined);
+        setActiveBranchId(undefined);
+      }
+    })();
   };
 
   const switchRole = (role: SystemRole, clubId?: string, branchId?: string) => {
