@@ -132,11 +132,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .map(r => r.branchId!)
     );
 
-    // If user has branch-specific roles, filter; otherwise if club-level, show all
+    // Branch-scoped roles never inherit access to every branch simply because
+    // their assignment is incomplete. Club-level admins are handled above.
     if (permittedBranchIds.size > 0) {
       return clubBranches.filter(b => permittedBranchIds.has(b.id));
     }
-    return clubBranches;
+    return [];
   }, [currentUser, activeClubId, activeRole]);
 
   // Auto-select first authorized club & branch if none active
@@ -188,7 +189,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const switchClub = (clubId: string) => {
     if (canAccessClub(clubId)) {
       setActiveClubId(clubId);
-      const branches = store.getBranches(clubId);
+      const clubBranches = store.getBranches(clubId);
+      const permittedBranchIds = new Set(
+        currentUser?.roles
+          .filter(r => r.clubId === clubId && r.branchId)
+          .map(r => r.branchId!) || []
+      );
+      const branches = ['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)
+        ? clubBranches
+        : clubBranches.filter(branch => permittedBranchIds.has(branch.id));
+
       if (branches.length > 0) {
         setActiveBranchId(branches[0].id);
       } else {
@@ -213,7 +223,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const canAccessBranch = (branchId: string): boolean => {
-    if (['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) return true;
+    if (['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole)) return true;
+    if (['CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) {
+      return store.getBranches(activeClubId).some(b => b.id === branchId);
+    }
     return authorizedBranches.some(b => b.id === branchId);
   };
 
