@@ -150,3 +150,54 @@ For a fresh-deploy guarantee:
 3. Validate the repository chain/current-state baseline against a disposable Supabase project or development branch.
 4. Compare tables, columns, constraints, indexes, functions, grants, triggers, RLS policies and required seed/reference data.
 5. Preserve KarateTech participant UUID compatibility and legacy cms_state data.
+
+
+## Verified live schema deltas beyond early repository migrations
+
+A full column inventory of the live schema confirms these later additions/evolutions:
+
+### clubs
+Beyond the original 0000 columns, live clubs includes:
+- display_name varchar
+- district text
+- internal_notes text
+- approval_status text default 'APPROVED'
+
+### club_branches
+Beyond the original 0000 columns, live club_branches includes:
+- district text
+- display_name varchar
+
+### user_roles
+Beyond the original 0000 columns, live user_roles includes:
+- participant_status text default 'REGISTERED'
+
+### audit_logs
+Live audit_logs also includes tenant scope:
+- club_id uuid
+- branch_id uuid
+
+### KarateTech participant links
+The live scms_karatetech_participant_links table includes additional sync resilience metadata:
+- last_successful_sync_at timestamptz
+- last_attempted_sync_at timestamptz
+- last_error text
+- retry_count integer default 0
+- conflict_status text
+- conflict_reference text
+- created_at timestamptz default now()
+- updated_at timestamptz default now()
+
+The existing KarateTech participant identifier compatibility contract must be preserved.
+
+### sync_history
+Live sync_history also includes:
+- previous_value jsonb
+- new_value jsonb
+- result_status text
+- request_id text
+
+### normalized member domain
+The live normalized domain includes complete member identity/contact/sport/emergency/legacy-reference fields in members, scoped multi-role assignments in member_roles, array-backed skills/duties/certifications/availability in volunteer_profiles, and guardian relationships that can point to either a profile or another member.
+
+These facts were recovered from the live information_schema column catalog. Constraints, indexes and RLS remain separate comparison dimensions and must also match before a fresh-deploy baseline is considered validated.
