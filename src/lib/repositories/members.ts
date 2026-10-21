@@ -89,68 +89,27 @@ export type CreateMemberInput = {
 
 export async function createNormalizedMember(input: CreateMemberInput): Promise<Member> {
   const supabase = createClient();
-  const memberNo = `SCMS-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-
-  const { data: member, error: memberError } = await supabase
-    .from('members')
-    .insert({
-      member_no: memberNo,
-      club_id: input.clubId,
-      branch_id: input.branchId,
-      full_name: input.fullName,
-      gender: input.gender,
-      date_of_birth: input.dob,
-      ic_passport: input.icPassport,
-      email: input.email || null,
-      phone: input.phone || null,
-      status: 'ACTIVE',
-      joined_date: new Date().toISOString().slice(0, 10),
-      sport_data: {
-        beltRank: input.beltRank,
-        weightKg: input.weightKg,
-      },
-    })
-    .select('*')
-    .single();
-
-  if (memberError) throw memberError;
-
-  const roles: SystemRole[] = ['MEMBER'];
-  if (input.isAthlete) roles.push('ATHLETE');
-  if (input.isVolunteer) roles.push('VOLUNTEER');
-
-  const { error: roleError } = await supabase.from('member_roles').insert(
-    roles.map(role => ({
-      member_id: member.id,
-      role,
-      club_id: input.clubId,
-      branch_id: input.branchId,
-    }))
-  );
-
-  if (roleError) {
-    await supabase.from('members').delete().eq('id', member.id);
-    throw roleError;
-  }
-
-  if (input.isVolunteer) {
-    const { error: volunteerError } = await supabase.from('volunteer_profiles').insert({
-      member_id: member.id,
-      status: 'ACTIVE',
-    });
-    if (volunteerError) {
-      await supabase.from('member_roles').delete().eq('member_id', member.id);
-      await supabase.from('members').delete().eq('id', member.id);
-      throw volunteerError;
-    }
-  }
+  const { data: memberId, error: createError } = await supabase.rpc('create_member_atomic', {
+    p_club_id: input.clubId,
+    p_branch_id: input.branchId,
+    p_full_name: input.fullName,
+    p_gender: input.gender,
+    p_dob: input.dob,
+    p_ic_passport: input.icPassport,
+    p_email: input.email || null,
+    p_phone: input.phone || null,
+    p_belt_rank: input.beltRank || null,
+    p_weight_kg: input.weightKg ?? null,
+    p_is_athlete: Boolean(input.isAthlete),
+    p_is_volunteer: Boolean(input.isVolunteer),
+  });
+  if (createError) throw createError;
 
   const { data: created, error: fetchError } = await supabase
     .from('members')
     .select('*, member_roles(role), volunteer_profiles(member_id)')
-    .eq('id', member.id)
+    .eq('id', memberId)
     .single();
-
   if (fetchError) throw fetchError;
   return mapDbMember(created as unknown as DbMember);
 }
