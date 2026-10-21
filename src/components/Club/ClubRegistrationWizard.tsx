@@ -41,6 +41,7 @@ export default function ClubRegistrationWizard({
   // Form State
   const [name, setName] = useState('');
   const [shortName, setShortName] = useState('');
+  const [scoreboardAbbreviation, setScoreboardAbbreviation] = useState('');
   const [sport, setSport] = useState('Karate');
   const [registrationNo, setRegistrationNo] = useState('');
   const [establishedYear, setEstablishedYear] = useState(new Date().getFullYear());
@@ -71,6 +72,7 @@ export default function ClubRegistrationWizard({
         {
           name,
           shortName: shortName || name,
+          scoreboardAbbreviation,
           sport,
           registrationNo,
           establishedYear,
@@ -165,6 +167,21 @@ export default function ClubRegistrationWizard({
                   value={shortName}
                   onChange={e => setShortName(e.target.value)}
                   className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-[#0284C7] focus:bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Scoreboard Abbreviation (KarateTech) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={30}
+                  placeholder="e.g. Senshi Karate, MAS"
+                  value={scoreboardAbbreviation}
+                  onChange={e => setScoreboardAbbreviation(e.target.value.toUpperCase())}
+                  className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-[#0284C7] focus:bg-white uppercase"
                 />
               </div>
 

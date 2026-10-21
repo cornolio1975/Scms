@@ -11,6 +11,15 @@ export async function testKarateTechConnection() {
   }
 }
 
+export async function syncSingleParticipantAction(participant: KarateTechParticipantPayload, userId: string) {
+  try {
+    const result = await KarateTechSyncService.executeSync(participant, userId);
+    return result;
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Sync failed' };
+  }
+}
+
 export async function bulkSyncParticipants(clubId: string, participants: KarateTechParticipantPayload[], userId: string) {
   try {
     const result = await KarateTechSyncService.executeBulkSync(clubId, participants, userId);

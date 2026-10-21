@@ -5,9 +5,14 @@
  * Sections 24 & 29: Dynamic dashboards for SuperAdmin, Club Admin, Branch Manager, Coach, Volunteer, and Parent
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { store } from '@/lib/store';
+import {
+  KarateTechIntegrationService,
+  KarateTechTournament
+} from '@/lib/integrations/karateTech';
+import { getPlatformKpisAction } from '@/app/actions/multi-club';
 import {
   Building2,
   Users,
@@ -22,6 +27,7 @@ import {
   ArrowRight,
   Sparkles,
   Award,
+  RefreshCw,
 } from 'lucide-react';
 
 interface DashboardOverviewProps {
@@ -30,6 +36,42 @@ interface DashboardOverviewProps {
 
 export default function DashboardOverview({ onSelectModule }: DashboardOverviewProps) {
   const { activeRole, activeClub, activeBranch, currentUser } = useAuth();
+  const [liveTournaments, setLiveTournaments] = useState<KarateTechTournament[]>([]);
+  const [loadingTournaments, setLoadingTournaments] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string>('');
+  const [dbKpis, setDbKpis] = useState<any>(null);
+
+  const syncTournaments = async () => {
+    setIsSyncing(true);
+    try {
+      const data = await KarateTechIntegrationService.getUpcomingTournaments();
+      setLiveTournaments(data);
+      setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    } catch (e) {
+      console.warn('Failed to auto-sync KarateTech tournaments:', e);
+    } finally {
+      setLoadingTournaments(false);
+      setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    syncTournaments();
+    // Fetch live DB KPIs
+    getPlatformKpisAction().then(res => {
+      if (res.success && res.kpis) setDbKpis(res.kpis);
+    }).catch(console.warn);
+
+    // Auto-sync poll every 30 seconds to keep live data fresh
+    const interval = setInterval(() => {
+      syncTournaments();
+      getPlatformKpisAction().then(res => {
+        if (res.success && res.kpis) setDbKpis(res.kpis);
+      }).catch(console.warn);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const isSuperAdmin = ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole);
   const isClubAdmin = ['CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole);
@@ -59,7 +101,9 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
           <p className="text-xs sm:text-sm text-sky-100 max-w-xl">
             {isSuperAdmin
               ? 'Platform wide multi-tenant oversight and KarateTech 3.0 bridge synchronization.'
-              : `Managing ${activeClub?.name || 'Club'} operational rosters, sessions, and tournament entries.`}
+              : activeBranch
+              ? `Managing ${activeBranch.name} (${activeClub?.displayName || activeClub?.shortName || activeClub?.name || 'Senshi Karate'}) operational rosters, sessions, and tournament entries.`
+              : `Managing ${activeClub?.displayName || activeClub?.shortName || activeClub?.name || 'Club'} operational rosters, sessions, and tournament entries.`}
           </p>
         </div>
 
@@ -188,45 +232,95 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
         <div className="lg:col-span-2 space-y-6">
           {/* KarateTech 3.0 Connected Card */}
           <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
               <div className="flex items-center space-x-2.5">
                 <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
                   <Trophy size={18} />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-base text-slate-900 leading-snug">
-                    KarateTech 3.0 Live Tournaments
-                  </h3>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="font-extrabold text-base text-slate-900 leading-snug">
+                      KarateTech 3.0 Live Tournaments
+                    </h3>
+                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span>Live Synced</span>
+                    </span>
+                  </div>
                   <span className="text-xs text-slate-500">Official Sanctioned Championships</span>
                 </div>
               </div>
 
-              <button
-                onClick={() => onSelectModule('kt-tournaments')}
-                className="text-xs font-bold text-[#0284C7] hover:underline flex items-center space-x-1"
-              >
-                <span>View All</span>
-                <ArrowRight size={13} />
-              </button>
-            </div>
-
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <span className="font-extrabold text-sm text-slate-900 block">
-                  Kelab Senshi Goju-Ryu Open Karate Championship 2026
-                </span>
-                <span className="text-xs text-slate-500">
-                  15–16 August 2026 • Dewan Serbaguna Petaling PJ
-                </span>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={syncTournaments}
+                  disabled={isSyncing}
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-800 flex items-center space-x-1 cursor-pointer"
+                  title="Auto-sync latest tournaments from KarateTech 3.0"
+                >
+                  <RefreshCw size={12} className={isSyncing ? 'animate-spin text-[#0284C7]' : ''} />
+                  <span>{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
+                </button>
+                <button
+                  onClick={() => onSelectModule('kt-tournaments')}
+                  className="text-xs font-bold text-[#0284C7] hover:underline flex items-center space-x-1"
+                >
+                  <span>View All</span>
+                  <ArrowRight size={13} />
+                </button>
               </div>
-
-              <button
-                onClick={() => onSelectModule('kt-tournaments')}
-                className="py-1.5 px-3 bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold text-xs rounded-xl shadow-xs"
-              >
-                Draft Roster (2 Ready)
-              </button>
             </div>
+
+            {loadingTournaments ? (
+              <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-center space-x-2 text-xs text-slate-500">
+                <RefreshCw size={14} className="animate-spin text-[#0284C7]" />
+                <span>Auto-syncing latest tournaments from KarateTech 3.0...</span>
+              </div>
+            ) : liveTournaments.length === 0 ? (
+              <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 text-center space-y-1">
+                <span className="text-xs font-bold text-slate-700 block">No Published Tournaments</span>
+                <span className="text-[11px] text-slate-400 block">There are no upcoming published tournaments currently in KarateTech 3.0.</span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {liveTournaments.slice(0, 3).map(t => (
+                  <div
+                    key={t.tournamentId}
+                    className="p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-sky-200 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-extrabold text-sm text-slate-900 block">
+                          {t.tournamentName}
+                        </span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          {t.status || 'Published'}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span className="font-semibold text-slate-700">{t.tournamentDate}</span>
+                        <span>•</span>
+                        <span>{t.venue}, {t.state}</span>
+                        {t.organizer && (
+                          <>
+                            <span>•</span>
+                            <span className="text-slate-400 font-medium">Org: {t.organizer}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => onSelectModule('kt-tournaments')}
+                      className="py-1.5 px-3.5 bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold text-xs rounded-xl shadow-xs transition-colors shrink-0 flex items-center space-x-1.5 self-start sm:self-center cursor-pointer"
+                    >
+                      <span>Draft Roster</span>
+                      <ArrowRight size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Today's Training Schedule */}

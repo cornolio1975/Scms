@@ -9,6 +9,7 @@ export default function SignupPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [clubName, setClubName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -25,7 +26,8 @@ export default function SignupPage() {
       password,
       options: {
         data: {
-          full_name: fullName
+          full_name: fullName,
+          club_name: clubName
         },
         emailRedirectTo: `${window.location.origin}/auth/callback`,
       }
@@ -44,7 +46,10 @@ export default function SignupPage() {
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
       <div className="w-full max-w-md space-y-8 rounded-lg bg-white p-8 shadow-md">
         <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Create Account</h2>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Create New Club</h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Sign up to create and manage your own sports club. You will become the Club Admin.
+          </p>
         </div>
         
         {error && (
@@ -55,7 +60,7 @@ export default function SignupPage() {
 
         {success ? (
           <div className="rounded-md bg-green-50 p-4 text-center">
-            <div className="text-sm text-green-700 font-medium mb-2">Account created!</div>
+            <div className="text-sm text-green-700 font-medium mb-2">Club Registered successfully!</div>
             <p className="text-sm text-green-600">Please check your email to verify your account.</p>
             <Link href="/login" className="mt-4 inline-block text-indigo-600 hover:text-indigo-500">
               Return to Login
@@ -65,7 +70,20 @@ export default function SignupPage() {
           <form className="mt-8 space-y-6" onSubmit={handleSignup}>
             <div className="space-y-4 rounded-md shadow-sm">
               <div>
-                <label className="sr-only" htmlFor="fullName">Full Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="clubName">Club Name</label>
+                <input
+                  id="clubName"
+                  type="text"
+                  required
+                  value={clubName}
+                  onChange={(e) => setClubName(e.target.value)}
+                  className="block w-full rounded-md border border-gray-300 px-3 py-2 placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
+                  placeholder="E.g. Kelab Karate Do Senshi"
+                />
+              </div>
+              <hr className="my-4" />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="fullName">Admin Full Name</label>
                 <input
                   id="fullName"
                   type="text"
@@ -73,11 +91,11 @@ export default function SignupPage() {
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   className="block w-full rounded-md border border-gray-300 px-3 py-2 placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
-                  placeholder="Full Name"
+                  placeholder="Your Full Name"
                 />
               </div>
               <div>
-                <label className="sr-only" htmlFor="email">Email</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="email">Admin Email</label>
                 <input
                   id="email"
                   type="email"
@@ -89,7 +107,7 @@ export default function SignupPage() {
                 />
               </div>
               <div>
-                <label className="sr-only" htmlFor="password">Password</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="password">Password</label>
                 <input
                   id="password"
                   type="password"
@@ -108,7 +126,7 @@ export default function SignupPage() {
                 disabled={loading}
                 className="group relative flex w-full justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50"
               >
-                {loading ? 'Creating account...' : 'Create Account'}
+                {loading ? 'Registering Club...' : 'Register New Club'}
               </button>
             </div>
           </form>

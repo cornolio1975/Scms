@@ -23,8 +23,16 @@ import {
 } from 'lucide-react';
 import { generateImmutableId } from '@/lib/idGenerator';
 
-export default function FinanceModule() {
+interface FinanceModuleProps {
+  clubId?: string;
+  branchId?: string;
+}
+
+export default function FinanceModule({ clubId, branchId }: FinanceModuleProps = {}) {
   const { activeClub, activeBranch, currentUser } = useAuth();
+  const effectiveClubId = clubId || activeClub?.id || 'Scms-CLUB-000001';
+  const effectiveBranchId = branchId !== '__ALL__' ? (branchId || activeBranch?.id) : undefined;
+
   const [activeTab, setActiveTab] = useState<'invoices' | 'receipts' | 'plans'>('invoices');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentReceipt | null>(null);
@@ -35,12 +43,17 @@ export default function FinanceModule() {
   const [payMethod, setPayMethod] = useState<PaymentReceipt['paymentMethod']>('DuitNow QR');
   const [payRef, setPayRef] = useState<string>('');
 
-  const invoices = store.invoices.filter(i =>
-    activeClub ? i.clubId === activeClub.id : true
-  );
-  const receipts = store.receipts.filter(r =>
-    activeClub ? r.clubId === activeClub.id : true
-  );
+  let invoices = store.invoices.filter(i => i.clubId === effectiveClubId);
+  let receipts = store.receipts.filter(r => r.clubId === effectiveClubId);
+
+  if (effectiveBranchId) {
+    const branchMemberIds = store.getMembers(effectiveClubId, effectiveBranchId).map(m => m.id);
+    invoices = invoices.filter(i => branchMemberIds.includes(i.memberId));
+    receipts = receipts.filter(r => {
+      const parentInvoice = store.invoices.find(inv => inv.id === r.invoiceId);
+      return parentInvoice && branchMemberIds.includes(parentInvoice.memberId);
+    });
+  }
 
   const filteredInvoices = invoices.filter(
     i => (statusFilter === 'All' ? true : i.status === statusFilter)

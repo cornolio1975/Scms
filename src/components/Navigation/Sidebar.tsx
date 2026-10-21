@@ -31,6 +31,7 @@ import {
   ChevronRight,
   ChevronLeft,
   Sparkles,
+  GitBranch,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -55,7 +56,7 @@ export default function Sidebar({
   collapsed,
   onToggleCollapse,
 }: SidebarProps) {
-  const { activeRole, activeClub } = useAuth();
+  const { activeRole, activeClub, activeBranch } = useAuth();
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
     club: false,
     members: false,
@@ -75,14 +76,31 @@ export default function Sidebar({
       items: [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
         {
+          id: 'all-clubs',
+          label: 'All Clubs Governance',
+          icon: Building2,
+          roles: ['SUPERADMIN', 'SYSTEM_ADMIN'],
+        },
+        {
+          id: 'club-profile',
+          label: 'Club Profile',
+          icon: Building2,
+          roles: ['CLUB_ADMIN', 'CLUB_CO_ADMIN', 'OBSERVER'],
+        },
+        {
+          id: 'branch-profile',
+          label: 'Branch Dojo Profile',
+          icon: GitBranch,
+          roles: ['BRANCH_MANAGER'],
+        },
+        {
           id: 'club',
           label: 'Club Management',
           icon: Building2,
           roles: ['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'CLUB_CO_ADMIN', 'OBSERVER'],
           subItems: [
+            { id: 'all-clubs', label: 'All Clubs Directory' },
             { id: 'club-profile', label: 'Club Profile' },
-            { id: 'branches', label: 'Branches' },
-            { id: 'officials', label: 'Officials & Staff' },
             { id: 'onboarding', label: 'Onboarding Wizard' },
           ],
         },
@@ -91,13 +109,6 @@ export default function Sidebar({
           label: 'Members & Athletes',
           icon: Users,
           roles: ['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'CLUB_CO_ADMIN', 'BRANCH_MANAGER', 'COACH', 'REGISTRATION_OFFICER'],
-          subItems: [
-            { id: 'all-members', label: 'All Members' },
-            { id: 'add-member', label: 'Add Member' },
-            { id: 'athletes', label: 'Athletes' },
-            { id: 'guardians', label: 'Parents / Guardians' },
-            { id: 'import-members', label: 'Data Import Centre' },
-          ],
         },
         {
           id: 'volunteers',
@@ -178,9 +189,13 @@ export default function Sidebar({
         },
         {
           id: 'approvals',
-          label: 'Approval Centre',
+          label: 'Approvals & Club Managers',
           icon: ShieldCheck,
-          roles: ['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'BRANCH_MANAGER'],
+          roles: ['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN'],
+          subItems: [
+            { id: 'approvals', label: 'Pending Approvals' },
+            { id: 'approved-managers', label: 'Approved Managers' }
+          ]
         },
         {
           id: 'reports',
@@ -255,14 +270,29 @@ export default function Sidebar({
         </button>
       </div>
 
-      {/* Active Club / Sport Micro-Banner */}
+      {/* Active Club / Branch Micro-Banner */}
       {!collapsed && activeClub && (
         <div className="px-4 py-2.5 bg-[#E0F2FE]/40 border-b border-[#BAE6FD]/60 flex items-center justify-between text-xs">
-          <div className="truncate pr-2">
-            <span className="text-slate-500 font-medium block text-[10px] uppercase tracking-wider">Active Club</span>
-            <span className="font-semibold text-slate-900 truncate block">{activeClub.shortName}</span>
+          <div className="truncate pr-2 min-w-0 flex-1">
+            <span className="text-slate-500 font-medium block text-[10px] uppercase tracking-wider">
+              {activeBranch ? 'Active Club & Branch' : 'Active Club & All Dojos'}
+            </span>
+            <span className="font-bold text-slate-900 truncate block text-[13px]" title={activeClub.name}>
+              {activeClub.displayName || activeClub.shortName || activeClub.name}
+            </span>
+            {activeBranch ? (
+              <span className="text-[11px] font-semibold text-[#0284C7] truncate flex items-center space-x-1 mt-0.5" title={activeBranch.name}>
+                <GitBranch size={11} className="shrink-0 text-[#0284C7]" />
+                <span className="truncate">{activeBranch.name}</span>
+              </span>
+            ) : (
+              <span className="text-[11px] font-semibold text-[#0284C7] truncate flex items-center space-x-1 mt-0.5" title="All Club Dojos">
+                <GitBranch size={11} className="shrink-0 text-[#0284C7]" />
+                <span className="truncate">All Club Dojos</span>
+              </span>
+            )}
           </div>
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#0284C7]/10 text-[#0284C7] border border-[#0284C7]/20 uppercase">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#0284C7]/10 text-[#0284C7] border border-[#0284C7]/20 uppercase shrink-0">
             {activeClub.sport}
           </span>
         </div>

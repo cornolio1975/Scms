@@ -24,9 +24,23 @@ import {
   Filter,
 } from 'lucide-react';
 
-export default function CoachConsole() {
-  const { currentUser, activeClub } = useAuth();
-  const [selectedSessionId, setSelectedSessionId] = useState<string>('sess-01');
+interface CoachConsoleProps {
+  clubId?: string;
+  branchId?: string;
+}
+
+export default function CoachConsole({ clubId, branchId }: CoachConsoleProps = {}) {
+  const { currentUser, activeClub, activeBranch } = useAuth();
+  const effectiveClubId = clubId || activeClub?.id || 'Scms-CLUB-000001';
+  const effectiveBranchId = branchId !== '__ALL__' ? (branchId || activeBranch?.id) : undefined;
+
+  let clubSessions = store.sessions.filter(s => s.clubId === effectiveClubId);
+  if (effectiveBranchId) {
+    clubSessions = clubSessions.filter(s => !s.branchId || s.branchId === effectiveBranchId);
+  }
+  const defaultSessionId = clubSessions[0]?.id || 'sess-01';
+
+  const [selectedSessionId, setSelectedSessionId] = useState<string>(defaultSessionId);
   const [rosterStatus, setRosterStatus] = useState<Record<string, AttendanceStatus>>({
     'Scms-MEM-000001': 'Present',
     'Scms-MEM-000002': 'Present',
@@ -38,11 +52,15 @@ export default function CoachConsole() {
   });
   const [isSaved, setIsSaved] = useState(false);
 
-  const trainingGroups = store.trainingGroups.filter(
-    tg => tg.clubId === activeClub?.id
+  let trainingGroups = store.trainingGroups.filter(
+    tg => tg.clubId === effectiveClubId
   );
-  const athletes = store.getMembers(activeClub?.id).filter(m => m.isAthlete);
-  const activeSession = store.sessions.find(s => s.id === selectedSessionId) || store.sessions[0];
+  if (effectiveBranchId) {
+    trainingGroups = trainingGroups.filter(tg => !tg.branchId || tg.branchId === effectiveBranchId);
+  }
+
+  const athletes = store.getMembers(effectiveClubId, effectiveBranchId).filter(m => m.isAthlete);
+  const activeSession = clubSessions.find(s => s.id === selectedSessionId) || clubSessions[0] || store.sessions[0];
 
   const handleStatusChange = (memberId: string, status: AttendanceStatus) => {
     setRosterStatus(prev => ({ ...prev, [memberId]: status }));

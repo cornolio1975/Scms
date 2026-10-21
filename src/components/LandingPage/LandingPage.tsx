@@ -51,6 +51,7 @@ export default function LandingPage({ onEnterApp, onOpenClubRegistration }: Land
   const [fullName, setFullName] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
+  const [requestedRole, setRequestedRole] = useState('MEMBER');
 
   const clubs = store.getClubs('Active');
 
@@ -74,6 +75,8 @@ export default function LandingPage({ onEnterApp, onOpenClubRegistration }: Land
     if (club.primaryAdminEmail) {
       setLoginEmail(club.primaryAdminEmail);
     }
+    setIsSignUp(false);
+    setLoginError('');
     setIsLoginModalOpen(true);
   };
 
@@ -87,19 +90,24 @@ export default function LandingPage({ onEnterApp, onOpenClubRegistration }: Land
         email: loginEmail,
         password: loginPassword,
         options: {
-          data: { full_name: fullName },
+          data: { 
+            full_name: fullName,
+            requested_role: requestedRole
+          },
           emailRedirectTo: `${window.location.origin}/auth/callback`,
         }
       });
       if (error) {
         setLoginError(error.message);
       } else {
-        setLoginError('Account created! Please check your email to verify.');
+        setLoginError('Account created successfully! You can now sign in.');
       }
     } else {
+      const cleanEmail = loginEmail.replace(/\s+/g, '').toLowerCase();
+      const cleanPassword = loginPassword.trim();
       const { error } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
-        password: loginPassword,
+        email: cleanEmail,
+        password: cleanPassword,
       });
 
       if (!error) {
@@ -112,7 +120,7 @@ export default function LandingPage({ onEnterApp, onOpenClubRegistration }: Land
           setIsLoginModalOpen(false);
           onEnterApp();
         } else {
-          setLoginError(error.message);
+          setLoginError("Auth error: " + error.message);
         }
       }
     }
@@ -174,6 +182,8 @@ export default function LandingPage({ onEnterApp, onOpenClubRegistration }: Land
             onClick={() => {
               setSelectedClubForLogin(null);
               setLoginEmail('superadmin@spsportdata.org');
+              setIsSignUp(false);
+              setLoginError('');
               setIsLoginModalOpen(true);
             }}
             className="px-6 py-2 rounded-xl text-xs sm:text-sm font-bold text-white bg-[#0284C7] hover:bg-[#0369A1] shadow-md shadow-sky-500/20 transition-all touch-target"
@@ -537,6 +547,23 @@ export default function LandingPage({ onEnterApp, onOpenClubRegistration }: Land
                 </div>
               </div>
 
+              {isSignUp && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Requested Role
+                  </label>
+                  <select
+                    value={requestedRole}
+                    onChange={(e) => setRequestedRole(e.target.value)}
+                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0284C7] focus:bg-white"
+                  >
+                    <option value="MEMBER">Athlete / Member</option>
+                    <option value="CLUB_ADMIN">Club Manager</option>
+                    <option value="BRANCH_MANAGER">Branch Manager</option>
+                  </select>
+                </div>
+              )}
+
               <div className="flex items-center justify-between text-xs text-slate-500">
                 <span className="italic text-[11px]">Role is automatically resolved.</span>
                 {!isSignUp && (
@@ -584,52 +611,6 @@ export default function LandingPage({ onEnterApp, onOpenClubRegistration }: Land
               >
                 {isSignUp ? 'Already have an account? Sign In' : 'Need an account? Sign Up'}
               </button>
-            </div>
-
-            <div className="pt-3 border-t border-slate-100 text-center">
-              <span className="text-[11px] text-slate-400 block mb-2">Or test as demo personas:</span>
-              <div className="flex flex-wrap gap-2 justify-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginEmail('superadmin@spsportdata.org');
-                    setLoginPassword('admin');
-                  }}
-                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-semibold"
-                >
-                  SuperAdmin
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginEmail('kannan@senshikarate.org');
-                    setLoginPassword('password123');
-                  }}
-                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-semibold"
-                >
-                  Club Admin (Senshi)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginEmail('ahmad.daniel@example.com');
-                    setLoginPassword('password123');
-                  }}
-                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-semibold"
-                >
-                  Volunteer / Athlete
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginEmail('fatimah.ali@example.com');
-                    setLoginPassword('password123');
-                  }}
-                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-semibold"
-                >
-                  Parent Portal
-                </button>
-              </div>
             </div>
           </div>
         </div>

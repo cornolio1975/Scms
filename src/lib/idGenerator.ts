@@ -15,7 +15,9 @@ export type IdPrefix =
   | 'EVT'
   | 'DOC'
   | 'APP'
-  | 'TREG';
+  | 'TREG'
+  | 'PCON'
+  | 'AGR';
 
 let inMemoryCounters: Record<string, number> = {
   CLUB: 100,
@@ -28,7 +30,18 @@ let inMemoryCounters: Record<string, number> = {
   DOC: 500,
   APP: 100,
   TREG: 50,
+  PCON: 100,
+  AGR: 100
 };
+
+if (typeof window !== 'undefined') {
+  const saved = localStorage.getItem('scms_id_counters');
+  if (saved) {
+    try {
+      inMemoryCounters = { ...inMemoryCounters, ...JSON.parse(saved) };
+    } catch (e) {}
+  }
+}
 
 export function generateImmutableId(prefix: IdPrefix, parentClubId?: string, branchNumber?: number): string {
   if (prefix === 'BRANCH' && parentClubId && branchNumber !== undefined) {
@@ -38,6 +51,11 @@ export function generateImmutableId(prefix: IdPrefix, parentClubId?: string, bra
 
   const current = (inMemoryCounters[prefix] || 1) + 1;
   inMemoryCounters[prefix] = current;
+  
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('scms_id_counters', JSON.stringify(inMemoryCounters));
+  }
+  
   const pad = String(current).padStart(6, '0');
   return `Scms-${prefix}-${pad}`;
 }

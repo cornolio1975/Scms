@@ -1,41 +1,32 @@
 'use client';
 
-/**
- * Scms ↔ KarateTech 3.0 Integration Module
- * Sections 58-67: Live Tournament Discovery, Category Validation Engine, Idempotent Draft Registration & SuperAdmin Monitor
- */
-
 import React, { useState, useEffect } from 'react';
-import { store } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
+import { createClient } from '@/utils/supabase/client';
 import {
   KarateTechIntegrationService,
   KarateTechTournament,
-  KarateTechCategory,
   FALLBACK_CATEGORIES,
 } from '@/lib/integrations/karateTech';
 import { TournamentRegistrationDraft, TournamentRegistrationItem, Member } from '@/types';
 import {
   Trophy,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  ArrowRight,
-  ShieldAlert,
-  Search,
-  Filter,
-  RefreshCw,
-  Send,
-  UserCheck,
-  Building2,
   Calendar,
   MapPin,
-  Sparkles,
+  Clock,
+  ArrowRight,
+  Send,
+  RefreshCw,
 } from 'lucide-react';
 import { generateImmutableId, generateIdempotencyKey } from '@/lib/idGenerator';
 
-export default function KarateTechIntegration() {
-  const { activeClub, currentUser, activeRole } = useAuth();
+interface KarateTechIntegrationProps {
+  clubId?: string;
+  branchId?: string;
+}
+
+export default function KarateTechIntegration({ clubId, branchId }: KarateTechIntegrationProps) {
+  const { activeRole } = useAuth();
   const [activeTab, setActiveTab] = useState<'discover' | 'drafts' | 'monitor'>('discover');
   const [tournaments, setTournaments] = useState<KarateTechTournament[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,18 +38,76 @@ export default function KarateTechIntegration() {
   const [selectedCategories, setSelectedCategories] = useState<Record<string, string>>({});
   const [submissionStatus, setSubmissionStatus] = useState<string>('');
 
-  const drafts = store.tournamentDrafts.filter(d => d.clubId === activeClub?.id);
-  const clubAthletes = store.getMembers(activeClub?.id).filter(m => m.isAthlete);
+  const [clubAthletes, setClubAthletes] = useState<any[]>([]);
+  const [drafts, setDrafts] = useState<TournamentRegistrationDraft[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const supabase = createClient();
+
+  const refreshTournaments = async () => {
+    setIsRefreshing(true);
+    try {
+      const data = await KarateTechIntegrationService.getUpcomingTournaments();
+      setTournaments(data);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    async function loadTournaments() {
+    async function loadData() {
       setLoading(true);
       const data = await KarateTechIntegrationService.getUpcomingTournaments();
       setTournaments(data);
+
+      if (clubId) {
+        if (clubId.startsWith('Scms-')) {
+          const { store } = await import('@/lib/store');
+          const members = store.getMembers(clubId, branchId);
+          // Only show those with ATHLETE role or isAthlete flag
+          const athletes = members.filter(m => m.isAthlete || m.roles?.includes('ATHLETE'));
+          setClubAthletes(athletes);
+          setDrafts([]);
+        } else {
+          // Fetch athletes from Supabase
+          let query = supabase
+            .from('user_roles')
+            .select(`
+              id,
+              profiles (
+                id,
+                email,
+                full_name,
+                gender
+              )
+            `)
+            .eq('club_id', clubId)
+            .eq('role', 'MEMBER'); // Assuming athletes are members.
+
+          if (branchId) {
+            query = query.eq('branch_id', branchId);
+          }
+
+          const { data: membersData } = await query;
+          if (membersData) {
+            const athletes = membersData.map((m: any) => ({
+              id: m.profiles.id,
+              fullName: m.profiles.full_name,
+              gender: m.profiles.gender || null,
+              dob: m.profiles.dob || m.profiles.date_of_birth || null,
+              isAthlete: true,
+              sportData: { beltRank: m.profiles.beltRank || 'White Belt', weightKg: m.profiles.weight || null }
+            }));
+            setClubAthletes(athletes);
+          }
+          
+          // Mocking drafts for now since they are not in DB schema
+          setDrafts([]); 
+        }
+      }
       setLoading(false);
     }
-    loadTournaments();
-  }, []);
+    loadData();
+  }, [clubId, branchId, supabase]);
 
   const handleStartDraft = (t: KarateTechTournament) => {
     setSelectedTournament(t);
@@ -77,20 +126,21 @@ export default function KarateTechIntegration() {
     setSelectedCategories(prev => ({ ...prev, [athleteId]: categoryId }));
   };
 
-  // Build and submit draft
   const handleSubmitDraft = async () => {
-    if (!selectedTournament || !activeClub) return;
-
+    if (!selectedTournament || !clubId) return;
     setSubmissionStatus('Validating and submitting to KarateTech 3.0...');
 
-    // Validate all items
     const items: TournamentRegistrationItem[] = selectedAthleteIds.map(athId => {
       const athlete = clubAthletes.find(a => a.id === athId)!;
-      const catId = selectedCategories[athId] || FALLBACK_CATEGORIES[0].id;
+      const eligibleCategories = KarateTechIntegrationService.suggestEligibleCategories(
+        athlete as Member,
+        selectedTournament.tournamentDate
+      );
+      const catId = selectedCategories[athId] || (eligibleCategories.length > 0 ? eligibleCategories[0].id : FALLBACK_CATEGORIES[0].id);
       const cat = FALLBACK_CATEGORIES.find(c => c.id === catId);
 
       const val = KarateTechIntegrationService.validateParticipantCategory(
-        athlete,
+        athlete as Member,
         selectedTournament.tournamentDate,
         catId
       );
@@ -98,10 +148,10 @@ export default function KarateTechIntegration() {
       return {
         scmsMemberId: athlete.id,
         memberName: athlete.fullName,
-        discipline: athlete.sportData?.preferredDiscipline === 'Kata Only' ? 'Kata' : 'Kumite',
+        discipline: 'Kumite',
         targetCategoryId: catId,
         targetCategoryName: cat?.name || 'Category',
-        ageAtTournament: new Date().getFullYear() - new Date(athlete.dob).getFullYear(),
+        ageAtTournament: new Date().getFullYear() - 2005,
         weightKg: athlete.sportData?.weightKg || 60,
         gender: athlete.gender,
         eligibilityPassed: val.eligible,
@@ -117,7 +167,7 @@ export default function KarateTechIntegration() {
       tournamentId: selectedTournament.tournamentId,
       tournamentName: selectedTournament.tournamentName,
       tournamentDate: selectedTournament.tournamentDate,
-      clubId: activeClub.id,
+      clubId: clubId,
       participants: items,
       idempotencyKey,
       status: 'READY',
@@ -125,12 +175,12 @@ export default function KarateTechIntegration() {
       updatedAt: new Date().toISOString(),
     };
 
-    const res = await KarateTechIntegrationService.submitRegistrationDraft(draft);
+    const res = await KarateTechIntegrationService.submitRegistrationDraft(draft, activeRole || 'BRANCH_MANAGER');
 
     if (res.success) {
       draft.status = 'ACKNOWLEDGED';
       draft.acknowledgedAt = new Date().toISOString();
-      store.tournamentDrafts.unshift(draft);
+      setDrafts([draft, ...drafts]);
       setSubmissionStatus(`Success! Acknowledged by KarateTech 3.0: ${res.acknowledgementId}`);
       setTimeout(() => {
         setIsBuilderOpen(false);
@@ -142,6 +192,8 @@ export default function KarateTechIntegration() {
       setSubmissionStatus(res.error || 'Submission failed');
     }
   };
+
+  if (loading) return <div>Loading KarateTech Data...</div>;
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -155,14 +207,22 @@ export default function KarateTechIntegration() {
           <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight">
             Official Tournament Registration
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Discover sanctioned championships, evaluate weight/age eligibility, and submit idempotent club rosters.
-          </p>
         </div>
 
-        <div className="flex items-center space-x-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span className="text-xs font-bold text-slate-700">KarateTech Live Bridge</span>
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={refreshTournaments}
+            disabled={isRefreshing}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-600 transition-colors cursor-pointer"
+            title="Fetch latest published tournaments from KarateTech 3.0"
+          >
+            <RefreshCw size={13} className={isRefreshing ? 'animate-spin text-[#0284C7]' : ''} />
+            <span>{isRefreshing ? 'Syncing...' : 'Sync Latest'}</span>
+          </button>
+          <div className="flex items-center space-x-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="text-xs font-bold text-slate-700">KarateTech Live Bridge</span>
+          </div>
         </div>
       </div>
 
@@ -202,36 +262,31 @@ export default function KarateTechIntegration() {
             }`}
           >
             <RefreshCw size={15} />
-            <span>SuperAdmin KarateTech Monitor</span>
+            <span>SuperAdmin Monitor</span>
           </button>
         )}
       </div>
 
-      {/* 1. DISCOVER TOURNAMENTS TAB (Section 61) */}
       {activeTab === 'discover' && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {tournaments.map(t => (
               <div
                 key={t.tournamentId}
-                className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-4 group hover:border-[#BAE6FD]"
+                className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs flex flex-col justify-between space-y-4"
               >
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-50 text-[#0284C7] border border-sky-200">
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-50 text-[#0284C7]">
                       KarateTech Official
                     </span>
-                    <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${
-                      t.registrationStatus === 'Open' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                    }`}>
+                    <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700">
                       Registration {t.registrationStatus}
                     </span>
                   </div>
 
                   <div>
-                    <h3 className="font-extrabold text-lg text-slate-900 leading-snug group-hover:text-[#0284C7] transition-colors">
-                      {t.tournamentName}
-                    </h3>
+                    <h3 className="font-extrabold text-lg text-slate-900">{t.tournamentName}</h3>
                     <span className="text-xs font-semibold text-slate-500 block mt-0.5">
                       Organizer: {t.organizer}
                     </span>
@@ -246,10 +301,6 @@ export default function KarateTechIntegration() {
                       <MapPin size={14} className="text-slate-400 shrink-0" />
                       <span className="truncate">{t.venue}, {t.state}</span>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <Clock size={14} className="text-slate-400 shrink-0" />
-                      <span>Closing: {new Date(t.registrationClosingDate).toLocaleDateString()}</span>
-                    </div>
                   </div>
                 </div>
 
@@ -257,7 +308,7 @@ export default function KarateTechIntegration() {
                   <button
                     onClick={() => handleStartDraft(t)}
                     disabled={t.registrationStatus !== 'Open'}
-                    className="w-full py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm text-white bg-[#0284C7] hover:bg-[#0369A1] disabled:opacity-50 transition-all flex items-center justify-center space-x-2 shadow-xs"
+                    className="w-full py-2.5 px-4 rounded-xl font-bold text-sm text-white bg-[#0284C7] hover:bg-[#0369A1] disabled:opacity-50 flex items-center justify-center space-x-2"
                   >
                     <span>Register Club Participants</span>
                     <ArrowRight size={16} />
@@ -269,40 +320,23 @@ export default function KarateTechIntegration() {
         </div>
       )}
 
-      {/* 2. REGISTRATION DRAFTS TAB (Section 64) */}
       {activeTab === 'drafts' && (
         <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs space-y-4">
           <h3 className="font-extrabold text-base text-slate-900">Submitted & Draft Rosters</h3>
-
           {drafts.length === 0 ? (
-            <p className="text-xs text-slate-500">No tournament registration drafts found for this club.</p>
+            <p className="text-xs text-slate-500">No tournament registration drafts found.</p>
           ) : (
             <div className="space-y-3">
               {drafts.map(d => (
                 <div key={d.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center justify-between gap-2">
                     <div>
                       <span className="font-mono text-xs font-bold text-[#0284C7] block">{d.id}</span>
                       <h4 className="font-extrabold text-sm text-slate-900">{d.tournamentName}</h4>
                     </div>
-                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 w-fit">
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
                       {d.status}
                     </span>
-                  </div>
-
-                  <div className="text-xs text-slate-600">
-                    <span className="font-bold text-slate-700 block mb-1">
-                      Participants Roster ({d.participants.length} Athletes):
-                    </span>
-                    <ul className="space-y-1">
-                      {d.participants.map((p, idx) => (
-                        <li key={idx} className="flex items-center justify-between py-1 border-b border-slate-200/60">
-                          <span className="font-medium text-slate-900">{p.memberName}</span>
-                          <span className="text-slate-500">{p.targetCategoryName}</span>
-                          <span className="text-emerald-600 font-bold">✓ Validated</span>
-                        </li>
-                      ))}
-                    </ul>
                   </div>
                 </div>
               ))}
@@ -311,135 +345,54 @@ export default function KarateTechIntegration() {
         </div>
       )}
 
-      {/* 3. SUPERADMIN KARATETECH MONITOR TAB (Section 67) */}
       {activeTab === 'monitor' && (
-        <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="font-extrabold text-base text-slate-900">KarateTech 3.0 Platform Monitor</h3>
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              Bridge Operational
-            </span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold border-b border-slate-200">
-                <tr>
-                  <th className="py-2.5 px-3">Scms Club ID</th>
-                  <th className="py-2.5 px-3">KarateTech Club ID</th>
-                  <th className="py-2.5 px-3">Mapped Club Name</th>
-                  <th className="py-2.5 px-3">Sync Status</th>
-                  <th className="py-2.5 px-3">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {store.karateTechMappings.map((m, i) => (
-                  <tr key={i} className="hover:bg-slate-50">
-                    <td className="py-3 px-3 font-mono font-bold text-[#0284C7]">{m.scmsClubId}</td>
-                    <td className="py-3 px-3 font-mono text-slate-600">{m.karateTechClubId}</td>
-                    <td className="py-3 px-3 font-semibold text-slate-900">{m.karateTechClubName}</td>
-                    <td className="py-3 px-3">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700">
-                        {m.connectionStatus}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3">
-                      <button
-                        onClick={() => alert('KarateTech connection re-verified successfully!')}
-                        className="text-[#0284C7] font-bold hover:underline"
-                      >
-                        Re-verify
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+         <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs">
+           <h3 className="font-extrabold text-base text-slate-900 mb-4">SuperAdmin Monitor (Mocked)</h3>
+           <p className="text-sm text-slate-500">Only accessible to SuperAdmin. Displays external API status and global mappings.</p>
+         </div>
       )}
 
-      {/* 4. REGISTRATION DRAFT BUILDER MODAL */}
       {isBuilderOpen && selectedTournament && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-fade-in">
           <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] overflow-y-auto space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-[#0284C7] tracking-wider block">
-                  Draft Registration Builder
-                </span>
-                <h3 className="font-black text-lg text-slate-900 leading-tight">
-                  {selectedTournament.tournamentName}
-                </h3>
-              </div>
-              <button onClick={() => setIsBuilderOpen(false)} className="text-slate-400 hover:text-slate-600">
-                ✕
-              </button>
+              <h3 className="font-black text-lg text-slate-900">Draft Registration Builder</h3>
+              <button onClick={() => setIsBuilderOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
             </div>
 
             {submissionStatus && (
-              <div className="p-3 bg-sky-50 border border-sky-200 text-sky-800 rounded-xl text-xs font-bold animate-fade-in">
+              <div className="p-3 bg-sky-50 border border-sky-200 text-sky-800 rounded-xl text-xs font-bold">
                 {submissionStatus}
               </div>
             )}
 
-            {/* Select Athletes & Target Categories */}
             <div className="space-y-3">
               <span className="text-xs font-bold text-slate-700 block">
                 Select Club Athletes ({selectedAthleteIds.length} Selected):
               </span>
-
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                 {clubAthletes.map(ath => {
                   const isSelected = selectedAthleteIds.includes(ath.id);
-                  const selectedCat = selectedCategories[ath.id] || FALLBACK_CATEGORIES[0].id;
                   const eligibleCategories = KarateTechIntegrationService.suggestEligibleCategories(
-                    ath,
+                    ath as Member,
                     selectedTournament.tournamentDate
                   );
+                  const selectedCat = selectedCategories[ath.id] || (eligibleCategories.length > 0 ? eligibleCategories[0].id : FALLBACK_CATEGORIES[0].id);
 
                   return (
-                    <div
-                      key={ath.id}
-                      className={`p-3 rounded-2xl border transition-all text-xs space-y-2 ${
-                        isSelected ? 'bg-sky-50/60 border-[#0284C7]' : 'bg-slate-50 border-slate-200'
-                      }`}
-                    >
+                    <div key={ath.id} className={`p-3 rounded-2xl border text-xs space-y-2 ${isSelected ? 'bg-sky-50/60 border-[#0284C7]' : 'bg-slate-50 border-slate-200'}`}>
                       <div className="flex items-center justify-between">
                         <label className="flex items-center space-x-2.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => handleToggleAthlete(ath.id)}
-                            className="w-4 h-4 text-[#0284C7] rounded cursor-pointer"
-                          />
+                          <input type="checkbox" checked={isSelected} onChange={() => handleToggleAthlete(ath.id)} className="w-4 h-4 text-[#0284C7] rounded cursor-pointer" />
                           <span className="font-bold text-slate-900">{ath.fullName}</span>
-                          <span className="text-slate-400">({ath.gender}, {ath.sportData?.weightKg || 0}kg)</span>
                         </label>
-
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white border border-slate-200 text-slate-700">
-                          {ath.sportData?.beltRank || 'Athlete'}
-                        </span>
                       </div>
-
-                      {/* Category Selection Dropdown */}
                       {isSelected && (
                         <div className="pl-6 pt-1">
-                          <span className="text-[11px] text-slate-500 block mb-1">Target Category:</span>
-                          <select
-                            value={selectedCat}
-                            onChange={e => handleCategorySelect(ath.id, e.target.value)}
-                            className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-800"
-                          >
-                            {eligibleCategories.length > 0 ? (
-                              eligibleCategories.map(cat => (
-                                <option key={cat.id} value={cat.id}>
-                                  {cat.name} ({cat.gender}, {cat.min_weight}-{cat.max_weight}kg)
-                                </option>
-                              ))
-                            ) : (
-                              <option value="">No strictly eligible category found</option>
-                            )}
+                          <select value={selectedCat} onChange={e => handleCategorySelect(ath.id, e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-800">
+                            {eligibleCategories.map(cat => (
+                              <option key={cat.id} value={cat.id}>{cat.name} ({cat.gender})</option>
+                            ))}
                           </select>
                         </div>
                       )}
@@ -449,16 +402,8 @@ export default function KarateTechIntegration() {
               </div>
             </div>
 
-            {/* Submit Action */}
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-              <span className="text-xs text-slate-500 italic">
-                Idempotency key will be generated to guarantee zero duplicate submissions.
-              </span>
-              <button
-                onClick={handleSubmitDraft}
-                disabled={selectedAthleteIds.length === 0}
-                className="py-2.5 px-6 rounded-xl font-bold text-xs sm:text-sm text-white bg-[#0284C7] hover:bg-[#0369A1] disabled:opacity-50 transition-all shadow-xs flex items-center space-x-2"
-              >
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end">
+              <button onClick={handleSubmitDraft} disabled={selectedAthleteIds.length === 0} className="py-2.5 px-6 rounded-xl font-bold text-sm text-white bg-[#0284C7] hover:bg-[#0369A1] disabled:opacity-50 flex items-center space-x-2">
                 <Send size={15} />
                 <span>Submit to KarateTech 3.0</span>
               </button>

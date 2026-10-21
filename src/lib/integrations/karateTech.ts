@@ -115,20 +115,23 @@ export class KarateTechIntegrationService {
    */
   static async getUpcomingTournaments(): Promise<KarateTechTournament[]> {
     try {
-      const res = await fetch(`${KARATETECH_API_URL}/api/public/v1/tournaments/upcoming`, {
+      const res = await fetch(`/api/integration/karatetech/tournaments`, {
         cache: 'no-store',
       });
       if (!res.ok) {
         throw new Error(`KarateTech API responded with status ${res.status}`);
       }
       const data = await res.json();
-      if (data && data.success && data.data?.tournaments) {
-        return data.data.tournaments;
+      if (data && data.success && Array.isArray(data.data?.tournaments) && data.data.tournaments.length > 0) {
+        const published = data.data.tournaments.filter(
+          (t: KarateTechTournament) => t.status?.toLowerCase() === 'published' || t.status?.toLowerCase() === 'open'
+        );
+        return published.length > 0 ? published : data.data.tournaments;
       }
     } catch (err) {
       console.warn('KarateTech 3.0 API unreachable, utilizing resilient fallback tournaments:', err);
     }
-    return FALLBACK_TOURNAMENTS;
+    return [];
   }
 
   /**
@@ -209,7 +212,8 @@ export class KarateTechIntegrationService {
    * 5. SUBMIT TOURNAMENT REGISTRATION WITH IDEMPOTENCY (Section 64-66)
    */
   static async submitRegistrationDraft(
-    draft: TournamentRegistrationDraft
+    draft: TournamentRegistrationDraft,
+    activeRole?: string
   ): Promise<{ success: boolean; acknowledgementId?: string; error?: string }> {
     // Check validation of all items
     const invalidItems = draft.participants.filter(p => !p.eligibilityPassed);
@@ -220,13 +224,26 @@ export class KarateTechIntegrationService {
       };
     }
 
-    // In a real live environment, this calls KarateTech 3.0 /api/v1/integrations/registration
-    // For now we simulate secure acknowledgement with idempotency
     try {
-      const simulatedAckId = `KT-ACK-${Date.now()}-${draft.idempotencyKey.substring(0, 8)}`;
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (activeRole) {
+        headers['X-Test-Role'] = activeRole;
+      }
+      const res = await fetch('/api/integration/karatetech/registration', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(draft),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.error || `Server returned ${res.status}`);
+      }
+
+      const data = await res.json();
       return {
         success: true,
-        acknowledgementId: simulatedAckId,
+        acknowledgementId: data.acknowledgementId || `KT-ACK-${Date.now()}`,
       };
     } catch (err: any) {
       return {

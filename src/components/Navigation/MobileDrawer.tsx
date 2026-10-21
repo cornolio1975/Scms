@@ -57,7 +57,9 @@ export default function MobileDrawer({
     { id: 'events', label: 'Events & Seminars', icon: CalendarDays },
     { id: 'kt-tournaments', label: 'KarateTech Tournaments', icon: Trophy },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare },
-    { id: 'approvals', label: 'Approval Centre', icon: ShieldCheck },
+    ...(['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN'].includes(activeRole)
+      ? [{ id: 'approvals', label: 'Approval Centre', icon: ShieldCheck }]
+      : []),
     { id: 'reports', label: 'Reports', icon: BarChart3 },
     { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'settings', label: 'Settings', icon: Settings },

@@ -15,11 +15,15 @@ export default function KarateTechSyncPanel() {
 
   const testConnection = async () => {
     setIsTesting(true);
-    // In a real implementation, this would hit a Next.js API route that calls KarateTechApiClient.checkHealth()
-    setTimeout(() => {
-      setIsConnected(true);
+    try {
+      const { testKarateTechConnection } = await import('@/app/actions/karatetech');
+      const res = await testKarateTechConnection();
+      setIsConnected(Boolean(res.success && res.isHealthy));
+    } catch {
+      setIsConnected(false);
+    } finally {
       setIsTesting(false);
-    }, 1500);
+    }
   };
 
   return (

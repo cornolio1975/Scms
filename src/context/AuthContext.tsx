@@ -24,6 +24,7 @@ interface AuthContextType {
   hasRole: (roles: SystemRole[]) => boolean;
   canAccessClub: (clubId: string) => boolean;
   canAccessBranch: (branchId: string) => boolean;
+  updateProfile: (fullName: string, phone?: string) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -35,41 +36,143 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [activeBranchId, setActiveBranchId] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
 
+  const [dbClubs, setDbClubs] = useState<Club[]>([]);
+  const [dbBranches, setDbBranches] = useState<ClubBranch[]>([]);
+
+  // Compute all available clubs merging DB clubs with store clubs
+  const allKnownClubs = React.useMemo(() => {
+    const map = new Map<string, Club>();
+    // First store mock clubs
+    store.getClubs().forEach(c => map.set(c.id, c));
+    // Then db clubs override or add
+    dbClubs.forEach(c => map.set(c.id, c));
+    return Array.from(map.values());
+  }, [dbClubs]);
+
+  // Compute all available branches merging DB branches with store branches
+  const allKnownBranches = React.useMemo(() => {
+    const map = new Map<string, ClubBranch>();
+    store.getBranches().forEach(b => map.set(b.id, b));
+    dbBranches.forEach(b => map.set(b.id, b));
+    return Array.from(map.values());
+  }, [dbBranches]);
+
   // Sync active club & branch objects
-  const activeClub = activeClubId ? store.getClubById(activeClubId) || null : null;
-  const activeBranch = activeBranchId ? store.getBranches().find(b => b.id === activeBranchId) || null : null;
+  const activeClub = activeClubId ? allKnownClubs.find(c => c.id === activeClubId) || null : null;
+  const activeBranch = (activeBranchId && activeBranchId !== '__ALL__')
+    ? allKnownBranches.find(b => b.id === activeBranchId) || null
+    : null;
 
   useEffect(() => {
-    async function loadSession() {
+    let subscription: any;
+
+    async function loadSession(userObj?: any) {
       try {
         const { createClient } = await import('@/utils/supabase/client');
         const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
+
+        // Concurrently fetch clubs and branches from Supabase
+        const [clubsRes, branchesRes] = await Promise.all([
+          supabase.from('clubs').select('*').order('name'),
+          supabase.from('club_branches').select('*').order('name')
+        ]);
+
+        if (clubsRes.data) {
+          const mappedClubs: Club[] = clubsRes.data.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            displayName: c.display_name,
+            shortName: c.short_name || c.display_name || c.name,
+            registrationNo: c.registration_no || '',
+            establishedYear: c.established_year || 2020,
+            sport: c.sport || 'Karate',
+            address: c.address || '',
+            city: c.city || '',
+            state: c.state || '',
+            postcode: c.postcode || '',
+            country: c.country || 'Malaysia',
+            phone: c.phone || '',
+            email: c.email || '',
+            status: c.status || 'Active',
+            primaryAdminId: c.primary_admin_id,
+            createdAt: c.created_at || new Date().toISOString(),
+            updatedAt: c.updated_at || new Date().toISOString(),
+          }));
+          setDbClubs(mappedClubs);
+        }
+
+        if (branchesRes.data) {
+          const mappedBranches: ClubBranch[] = branchesRes.data.map((b: any) => ({
+            id: b.id,
+            clubId: b.club_id,
+            name: b.name,
+            address: b.address || '',
+            city: b.city || '',
+            state: b.state || '',
+            postcode: b.postcode || '',
+            country: b.country || 'Malaysia',
+            phone: b.phone || '',
+            email: b.email || '',
+            venueName: b.venue_name || b.name,
+            managerId: b.manager_id,
+            status: b.status || 'Active',
+            createdAt: b.created_at || new Date().toISOString(),
+            updatedAt: b.updated_at || new Date().toISOString(),
+          }));
+          setDbBranches(mappedBranches);
+        }
+        
+        let user = userObj;
+        if (!user) {
+          const { data } = await supabase.auth.getUser();
+          user = data.user;
+        }
         
         if (user) {
+          if (user.user_metadata?.temp_password && typeof window !== 'undefined' && !window.location.pathname.includes('/update-password')) {
+            window.location.href = '/update-password';
+            return;
+          }
+
           // Fetch actual role from DB
           const { data: userRole } = await supabase
             .from('user_roles')
-            .select('role')
+            .select('role, club_id, branch_id')
             .eq('user_id', user.id)
             .limit(1)
-            .single();
+            .maybeSingle();
             
-          const role = userRole?.role || 'MEMBER';
+          const dbRole = userRole?.role || 'MEMBER';
+          const dbClubId = userRole?.club_id;
+          const dbBranchId = userRole?.branch_id;
+
+          // Mock-store (Scms-) fallback: roles/branch assignments live in localStorage
+          const { resolveMockRole } = await import('@/lib/mockRole');
+          const mock = resolveMockRole(user.email, user.user_metadata?.full_name);
+          const role = (dbRole !== 'MEMBER' ? dbRole : mock?.role || dbRole) as SystemRole;
+          const assignedClubId = dbClubId || mock?.clubId;
+          const assignedBranchId = dbBranchId || mock?.branchId;
           
           // Create a mock User object from session for context compatibility
           const mockUser: User = {
             id: user.id,
             email: user.email || '',
-            fullName: user.user_metadata?.full_name || 'User',
+            fullName: user.user_metadata?.full_name || mock?.fullName || 'User',
             status: 'Active',
-            roles: [{ role, grantedAt: new Date().toISOString() }],
+            roles: [{ role, clubId: assignedClubId, branchId: assignedBranchId, grantedAt: new Date().toISOString() }],
             activeRole: role,
+            activeClubId: assignedClubId,
+            activeBranchId: assignedBranchId,
             createdAt: user.created_at,
           };
           
           setCurrentUser(mockUser);
-          setActiveRole(role as SystemRole);
+          setActiveRole(role);
+          if (assignedClubId) setActiveClubId(assignedClubId);
+          if (assignedBranchId) setActiveBranchId(assignedBranchId);
+        } else {
+          setCurrentUser(null);
+          setActiveRole('MEMBER');
         }
       } catch (e) {
         console.error('Failed to load session:', e);
@@ -77,25 +180,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
       }
     }
+
     loadSession();
+
+    // Listen for auth changes
+    import('@/utils/supabase/client').then(({ createClient }) => {
+      const supabase = createClient();
+      const { data } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          loadSession(session?.user);
+        } else if (event === 'SIGNED_OUT') {
+          setCurrentUser(null);
+          setActiveRole('MEMBER');
+        }
+      });
+      subscription = data.subscription;
+    });
+
+    return () => {
+      if (subscription) subscription.unsubscribe();
+    };
   }, []);
 
   // Compute authorized clubs for current user
   const authorizedClubs = React.useMemo(() => {
     if (!currentUser) return [];
     if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER'].includes(activeRole)) {
-      return store.getClubs();
+      return allKnownClubs;
     }
     const permittedClubIds = new Set(
       currentUser.roles.filter(r => r.clubId).map(r => r.clubId!)
     );
-    return store.getClubs().filter(c => permittedClubIds.has(c.id));
-  }, [currentUser, activeRole]);
+    return allKnownClubs.filter(c => permittedClubIds.has(c.id));
+  }, [currentUser, activeRole, allKnownClubs]);
 
   // Compute authorized branches for current club
   const authorizedBranches = React.useMemo(() => {
     if (!currentUser || !activeClubId) return [];
-    const clubBranches = store.getBranches(activeClubId);
+    const clubBranches = allKnownBranches.filter(b => b.clubId === activeClubId);
 
     if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) {
       return clubBranches;
@@ -112,7 +234,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return clubBranches.filter(b => permittedBranchIds.has(b.id));
     }
     return clubBranches;
-  }, [currentUser, activeClubId, activeRole]);
+  }, [currentUser, activeClubId, activeRole, allKnownBranches]);
 
   // Auto-select first authorized club & branch if none active
   useEffect(() => {
@@ -123,8 +245,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [authorizedClubs, activeClubId]);
 
   useEffect(() => {
-    if (authorizedBranches.length > 0 && (!activeBranchId || !authorizedBranches.some(b => b.id === activeBranchId))) {
-      setActiveBranchId(authorizedBranches[0].id);
+    if (authorizedBranches.length > 0) {
+      if (activeBranchId === '__ALL__') {
+        return;
+      }
+      if (!activeBranchId || !authorizedBranches.some(b => b.id === activeBranchId)) {
+        setActiveBranchId(authorizedBranches[0].id);
+      }
     }
   }, [authorizedBranches, activeBranchId]);
 
@@ -163,9 +290,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const switchClub = (clubId: string) => {
     if (canAccessClub(clubId)) {
       setActiveClubId(clubId);
-      const branches = store.getBranches(clubId);
+      const branches = allKnownBranches.filter(b => b.clubId === clubId);
       if (branches.length > 0) {
-        setActiveBranchId(branches[0].id);
+        if (activeBranchId !== '__ALL__') {
+          setActiveBranchId(branches[0].id);
+        }
       } else {
         setActiveBranchId(undefined);
       }
@@ -173,6 +302,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const switchBranch = (branchId: string) => {
+    if (!branchId || branchId === '__ALL__') {
+      setActiveBranchId('__ALL__');
+      return;
+    }
     if (canAccessBranch(branchId)) {
       setActiveBranchId(branchId);
     }
@@ -184,12 +317,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const canAccessClub = (clubId: string): boolean => {
     if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER'].includes(activeRole)) return true;
-    return authorizedClubs.some(c => c.id === clubId);
+    if (clubId.startsWith('Scms-')) return true;
+    return authorizedClubs.some(c => c.id === clubId) || currentUser?.roles?.some(r => r.clubId === clubId) || false;
   };
 
   const canAccessBranch = (branchId: string): boolean => {
+    if (!branchId || branchId === '__ALL__') return true;
     if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) return true;
-    return authorizedBranches.some(b => b.id === branchId);
+    if (branchId.startsWith('Scms-')) return true;
+    return authorizedBranches.some(b => b.id === branchId) || currentUser?.roles?.some(r => r.branchId === branchId) || false;
+  };
+
+  const updateProfile = async (fullName: string, phone?: string): Promise<boolean> => {
+    try {
+      // 1. Try to update Supabase if signed in
+      const { createClient } = await import('@/utils/supabase/client');
+      const supabase = createClient();
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { error } = await supabase.auth.updateUser({
+          data: { full_name: fullName, phone: phone }
+        });
+        if (error) console.error('Supabase profile update failed:', error);
+      }
+      
+      // 2. Also update local mock store user just in case
+      if (currentUser) {
+        store.updateUser(currentUser.id, { fullName, phone });
+        setCurrentUser({ ...currentUser, fullName });
+      }
+      
+      return true;
+    } catch (e) {
+      console.error('Failed to update profile', e);
+      return false;
+    }
   };
 
   if (isLoading) {
@@ -215,6 +378,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         hasRole,
         canAccessClub,
         canAccessBranch,
+        updateProfile,
       }}
     >
       {children}

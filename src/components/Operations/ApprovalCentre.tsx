@@ -1,65 +1,36 @@
 'use client';
 
-/**
- * Scms Approval Centre
- * Section 18: Centralized, audited multi-tenant approvals (Club registrations, branch creation, role elevations, transfers)
- */
-
 import React, { useState } from 'react';
-import { store } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
-import { ApprovalRequest } from '@/types';
-import {
-  ShieldCheck,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  AlertCircle,
-  Building2,
-  User,
-  Filter,
-} from 'lucide-react';
+import { ShieldCheck, Users, Building2, Edit, RefreshCw, AlertTriangle, XOctagon, Search } from 'lucide-react';
 
-export default function ApprovalCentre() {
-  const { currentUser } = useAuth();
-  const [filterStatus, setFilterStatus] = useState<string>('All');
-  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
+// Placeholder sub-components (to be implemented)
+import PendingMembersTab from './ApprovalTabs/PendingMembersTab';
+import BranchAssignmentsTab from './ApprovalTabs/BranchAssignmentsTab';
+import ParticipantChangesTab from './ApprovalTabs/ParticipantChangesTab';
+import KarateTechSyncTab from './ApprovalTabs/KarateTechSyncTab';
+import ConflictsTab from './ApprovalTabs/ConflictsTab';
+import FailedSyncTab from './ApprovalTabs/FailedSyncTab';
+import ReconciliationTab from './ApprovalTabs/ReconciliationTab';
+import ClubRegistrationsTab from './ApprovalTabs/ClubRegistrationsTab';
 
-  const approvals = store.approvals.filter(a =>
-    filterStatus === 'All' ? true : a.status === filterStatus
-  );
+export default function ApprovalCentre({ currentModule }: { currentModule?: string }) {
+  const { activeRole, activeClub } = useAuth();
+  const [activeTab, setActiveTab] = useState<string>('Pending Members');
 
-  const handleApprove = (approvalId: string) => {
-    const success = store.approveClub(
-      approvalId,
-      currentUser?.fullName || 'SuperAdmin',
-      reviewNotes[approvalId] || 'Approved'
-    );
-    if (!success) {
-      const app = store.approvals.find(a => a.id === approvalId);
-      if (app) {
-        app.status = 'Approved';
-        app.reviewedByName = currentUser?.fullName;
-        app.reviewedAt = new Date().toISOString();
-        app.decisionNotes = reviewNotes[approvalId] || 'Approved';
-        store.logActivity(currentUser?.fullName || 'Admin', 'Request Approved', `Approved request ${app.title}`, 'APPROVAL');
-      }
-    }
-    // Force re-render
-    setFilterStatus(prev => prev);
-  };
+  const tabs = [
+    { id: 'Pending Members', icon: Users },
+    { id: 'Branch Assignments', icon: Building2 },
+    { id: 'Participant Changes', icon: Edit },
+    { id: 'KarateTech Sync', icon: RefreshCw },
+    { id: 'Conflicts', icon: AlertTriangle },
+    { id: 'Failed Sync', icon: XOctagon },
+    { id: 'Reconciliation', icon: Search },
+  ];
 
-  const handleReject = (approvalId: string) => {
-    const app = store.approvals.find(a => a.id === approvalId);
-    if (app) {
-      app.status = 'Rejected';
-      app.reviewedByName = currentUser?.fullName;
-      app.reviewedAt = new Date().toISOString();
-      app.decisionNotes = reviewNotes[approvalId] || 'Rejected';
-      store.logActivity(currentUser?.fullName || 'Admin', 'Request Rejected', `Rejected request ${app.title}`, 'APPROVAL');
-      setFilterStatus(prev => prev);
-    }
-  };
+  if (activeRole === 'SUPERADMIN') {
+    tabs.unshift({ id: 'Club Registrations', icon: Building2 });
+  }
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -74,102 +45,43 @@ export default function ApprovalCentre() {
             Central Approval Centre
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Audit and approve club registration wizards, branch additions, volunteer enrolments, and role authorizations.
+            Manage the complete participant lifecycle and operational requests.
           </p>
-        </div>
-
-        {/* Filter Badges */}
-        <div className="flex items-center gap-1.5">
-          {['All', 'Pending', 'Approved', 'Rejected'].map(st => (
-            <button
-              key={st}
-              onClick={() => setFilterStatus(st)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                filterStatus === st
-                  ? 'bg-[#0284C7] text-white shadow-xs'
-                  : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              {st}
-            </button>
-          ))}
         </div>
       </div>
 
-      {/* Approvals List */}
-      <div className="space-y-4">
-        {approvals.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-3xl p-8 text-center text-xs text-slate-500">
-            No approval requests match the selected status filter.
-          </div>
-        ) : (
-          approvals.map(app => {
-            const isPending = app.status === 'Pending';
+      {/* Tabs */}
+      <div className="flex overflow-x-auto space-x-2 pb-2 scrollbar-hide">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${
+                isActive
+                  ? 'bg-slate-900 text-white shadow-md'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <Icon size={16} className={isActive ? 'text-white' : 'text-slate-400'} />
+              <span>{tab.id}</span>
+            </button>
+          );
+        })}
+      </div>
 
-            return (
-              <div
-                key={app.id}
-                className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6"
-              >
-                <div className="space-y-2 max-w-2xl">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs font-bold text-[#0284C7]">{app.id}</span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-50 text-[#0284C7] border border-sky-200">
-                      {app.type}
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        app.status === 'Approved'
-                          ? 'bg-emerald-50 text-emerald-700'
-                          : app.status === 'Rejected'
-                          ? 'bg-rose-50 text-rose-700'
-                          : 'bg-amber-50 text-amber-700 animate-pulse'
-                      }`}
-                    >
-                      {app.status}
-                    </span>
-                  </div>
-
-                  <h3 className="font-extrabold text-base text-slate-900 leading-snug">
-                    {app.title}
-                  </h3>
-
-                  <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-4 gap-y-1">
-                    <span>Submitted by: <strong className="text-slate-700">{app.submittedByName}</strong></span>
-                    <span>•</span>
-                    <span>Date: {new Date(app.submittedAt).toLocaleDateString()}</span>
-                    {app.reviewedByName && (
-                      <>
-                        <span>•</span>
-                        <span>Audited by: <strong className="text-slate-800">{app.reviewedByName}</strong> ({app.decisionNotes})</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Decision Actions */}
-                {isPending && (
-                  <div className="flex items-center gap-2 w-full md:w-auto">
-                    <button
-                      onClick={() => handleApprove(app.id)}
-                      className="flex-1 md:flex-initial py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm rounded-xl transition-all shadow-xs flex items-center justify-center space-x-1.5 touch-target"
-                    >
-                      <CheckCircle2 size={16} />
-                      <span>Approve</span>
-                    </button>
-                    <button
-                      onClick={() => handleReject(app.id)}
-                      className="flex-1 md:flex-initial py-2.5 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs sm:text-sm rounded-xl transition-all flex items-center justify-center space-x-1.5 touch-target"
-                    >
-                      <XCircle size={16} />
-                      <span>Reject</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
+      {/* Content Area */}
+      <div className="mt-6">
+        {activeTab === 'Club Registrations' && <ClubRegistrationsTab />}
+        {activeTab === 'Pending Members' && <PendingMembersTab />}
+        {activeTab === 'Branch Assignments' && <BranchAssignmentsTab />}
+        {activeTab === 'Participant Changes' && <ParticipantChangesTab />}
+        {activeTab === 'KarateTech Sync' && <KarateTechSyncTab />}
+        {activeTab === 'Conflicts' && <ConflictsTab />}
+        {activeTab === 'Failed Sync' && <FailedSyncTab />}
+        {activeTab === 'Reconciliation' && <ReconciliationTab />}
       </div>
     </div>
   );

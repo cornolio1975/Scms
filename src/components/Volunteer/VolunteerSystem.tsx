@@ -26,14 +26,28 @@ import {
   Trophy,
 } from 'lucide-react';
 
-export default function VolunteerSystem() {
-  const { currentUser, activeClub, activeRole } = useAuth();
+interface VolunteerSystemProps {
+  clubId?: string;
+  branchId?: string;
+}
+
+export default function VolunteerSystem({ clubId, branchId }: VolunteerSystemProps = {}) {
+  const { currentUser, activeClub, activeBranch, activeRole } = useAuth();
   const [activeTab, setActiveTab] = useState<'assignments' | 'registry' | 'duty-dispatch'>('assignments');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
 
-  const volunteers = store.getVolunteers(activeClub?.id);
-  const assignments = store.volunteerAssignments;
+  const effectiveClubId = clubId || activeClub?.id || 'Scms-CLUB-000001';
+  const effectiveBranchId = branchId !== '__ALL__' ? (branchId || activeBranch?.id) : undefined;
+
+  let volunteers = store.getVolunteers(effectiveClubId);
+  if (effectiveBranchId) {
+    volunteers = volunteers.filter(v => v.branchId === effectiveBranchId);
+  }
+  let assignments = store.volunteerAssignments.filter(a => a.clubId === effectiveClubId);
+  if (effectiveBranchId) {
+    assignments = assignments.filter(a => !a.branchId || a.branchId === effectiveBranchId);
+  }
 
   // Handler for volunteer check-in
   const handleCheckIn = (assignmentId: string) => {

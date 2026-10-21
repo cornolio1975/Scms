@@ -69,11 +69,14 @@ export type ClubStatus =
 export interface Club {
   id: string; // e.g. "Scms-CLUB-000001"
   name: string;
+  displayName?: string; // Transmitted as club-name to KarateTech 3.0 (max 30 chars)
   shortName: string;
+  scoreboardAbbreviation?: string;
   sport: string; // e.g. "Karate", "Football", "Swimming", "Kabaddi"
   registrationNo: string;
   establishedYear: number;
   address: string;
+  district?: string;
   city: string;
   state: string;
   postcode: string;
@@ -83,6 +86,7 @@ export interface Club {
   website?: string;
   logoUrl?: string;
   description?: string;
+  internalNotes?: string;
   status: ClubStatus;
   primaryAdminId?: string;
   primaryAdminName?: string;
@@ -171,6 +175,7 @@ export interface Member {
   emergencyContactPhone: string;
   emergencyContactRelation: string;
   status: MemberStatus;
+  roles?: string[];
   isAthlete: boolean;
   isVolunteer: boolean;
   guardianId?: string; // FK to Member or User if minor
@@ -597,4 +602,70 @@ export interface TournamentRegistrationDraft {
   acknowledgedAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// ==========================================
+// 12. PARENT/GUARDIAN CONTACTS & VOLUNTEERS
+// ==========================================
+
+export interface ParentContact {
+  id: string; // "Scms-PCON-..."
+  clubId: string;
+  fullName: string;
+  contactNumber: string;
+  email?: string;
+  isVolunteerEligible: boolean;
+  volunteerCommunicationConsent: boolean;
+  volunteerConsentTimestamp?: string;
+  volunteerInterests?: string[];
+  availabilityNotes?: string;
+  isActive: boolean;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type GuardianRelationshipType = 'Father' | 'Mother' | 'Guardian' | 'Spouse' | 'Other';
+
+export interface AthleteGuardianRelationship {
+  id: string; // "Scms-AGR-..."
+  athleteId: string; // member ID
+  guardianContactId: string;
+  relationship: GuardianRelationshipType;
+  relationshipDescription?: string; // If 'Other'
+  isPrimaryContact: boolean;
+  isEmergencyContact: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NewVolunteerAssignment {
+  id: string; // "Scms-VASS-..."
+  clubId: string;
+  branchId?: string;
+  title: string;
+  eventName: string;
+  eventDate: string;
+  startTime: string;
+  endTime: string;
+  location: string;
+  generalDuty: string;
+  volunteersRequired: number;
+  instructions?: string;
+  status: 'Draft' | 'Open' | 'Assigned' | 'Completed' | 'Cancelled';
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VolunteerAssignmentMember {
+  assignmentId: string;
+  guardianContactId: string;
+  individualDuty?: string;
+  status: 'Pending Confirmation' | 'Confirmed' | 'Declined' | 'Completed' | 'Cancelled';
+  attendanceStatus?: 'Present' | 'Absent' | 'Late';
+  assignedBy: string;
+  assignedAt: string;
+  notes?: string;
 }
