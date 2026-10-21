@@ -53,7 +53,7 @@ export default function MembersDirectory() {
   // Data Import Modal
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importStep, setImportStep] = useState(1);
-  const [importPreviewCount, setImportPreviewCount] = useState(0);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
 
   const legacyMembers = store.getMembers(activeClub?.id, activeBranch?.id);
   const members = normalizedMembers ?? legacyMembers;
@@ -138,17 +138,10 @@ export default function MembersDirectory() {
     }
   };
 
-  const handleSimulateCsvUpload = () => {
-    setImportPreviewCount(45);
-    setImportStep(2);
-  };
-
-  const handleCommitImport = () => {
-    setImportStep(3);
-    setTimeout(() => {
-      setIsImportModalOpen(false);
-      setImportStep(1);
-    }, 2000);
+  const handleCsvImportUnavailable = () => {
+    setImportMessage(
+      'CSV import is not enabled yet. No member records were changed. Use Add Member until the validated normalized import workflow is available.'
+    );
   };
 
   if (selectedMember) {
@@ -462,7 +455,7 @@ export default function MembersDirectory() {
                 </p>
 
                 <div
-                  onClick={handleSimulateCsvUpload}
+                  onClick={handleCsvImportUnavailable}
                   className="border-2 border-dashed border-[#BAE6FD] hover:border-[#0284C7] bg-[#F0F9FF]/50 hover:bg-[#F0F9FF] rounded-2xl p-8 text-center cursor-pointer transition-colors space-y-2"
                 >
                   <Upload size={32} className="mx-auto text-[#0284C7]" />
@@ -476,54 +469,10 @@ export default function MembersDirectory() {
               </div>
             )}
 
-            {importStep === 2 && (
-              <div className="space-y-4">
-                <div className="bg-sky-50 border border-sky-200 p-3.5 rounded-2xl text-xs text-sky-900 space-y-1">
-                  <span className="font-bold block">Validation Preview:</span>
-                  <p>
-                    <strong>{importPreviewCount} records detected</strong>: 43 valid records, 2 warnings (missing phone). Zero duplicate identities found.
-                  </p>
-                </div>
-
-                <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl p-2 text-[11px] font-mono divide-y divide-slate-100">
-                  <div className="py-1 flex justify-between">
-                    <span>Ahmad Zulkifli (Male, 2004)</span>
-                    <span className="text-emerald-600 font-bold">Valid</span>
-                  </div>
-                  <div className="py-1 flex justify-between">
-                    <span>Mei Ling Wong (Female, 2006)</span>
-                    <span className="text-emerald-600 font-bold">Valid</span>
-                  </div>
-                  <div className="py-1 flex justify-between">
-                    <span>Suresh Kumar (Male, 2008)</span>
-                    <span className="text-amber-600 font-bold">Warning</span>
-                  </div>
-                </div>
-
-                <div className="pt-2 flex justify-end space-x-2">
-                  <button
-                    onClick={() => setImportStep(1)}
-                    className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-700"
-                  >
-                    Back
-                  </button>
-                  <button
-                    onClick={handleCommitImport}
-                    className="px-5 py-2 bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold text-xs rounded-xl shadow-xs"
-                  >
-                    Confirm & Import Roster
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {importStep === 3 && (
-              <div className="text-center py-6 space-y-3">
-                <CheckCircle2 size={36} className="mx-auto text-emerald-600" />
-                <h4 className="font-black text-lg text-slate-900">Import Completed!</h4>
-                <p className="text-xs text-slate-500">
-                  45 member records have been successfully added to {activeClub?.shortName}.
-                </p>
+            {importMessage && (
+              <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-2xl text-xs text-amber-900">
+                <span className="font-bold block mb-1">Import not available</span>
+                <p>{importMessage}</p>
               </div>
             )}
           </div>
