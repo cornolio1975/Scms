@@ -127,6 +127,8 @@ export default function WorkspaceView({
             {(currentModule === 'members' ||
               currentModule === 'all-members' ||
               currentModule === 'athletes' ||
+              currentModule === 'add-member' ||
+              currentModule === 'guardians' ||
               currentModule === 'import-members') && (
               <MembersDirectory />
             )}
@@ -150,6 +152,7 @@ export default function WorkspaceView({
             {(currentModule === 'club' ||
               currentModule === 'club-profile' ||
               currentModule === 'branches' ||
+              currentModule === 'officials' ||
               currentModule === 'onboarding') && (
               <ClubManagement />
             )}
