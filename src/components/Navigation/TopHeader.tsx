@@ -54,12 +54,20 @@ export default function TopHeader({
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
 
-  // Grouped Global Search results
+  const isPlatformAdmin = ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole);
+
+  // Global cross-club search is a platform-admin capability only.
+  // Other roles are filtered to the currently authorized club/branch.
   const searchResults = React.useMemo(() => {
     if (!searchQuery.trim() || searchQuery.length < 2) return null;
     const q = searchQuery.toLowerCase();
+    const memberScope = store.getMembers().filter(m =>
+      isPlatformAdmin ||
+      (m.clubId === activeClub?.id &&
+        (activeRole !== 'BRANCH_MANAGER' || m.branchId === activeBranch?.id))
+    );
 
-    const members = store.getMembers().filter(
+    const members = memberScope.filter(
       m =>
         m.id.toLowerCase().includes(q) ||
         m.fullName.toLowerCase().includes(q) ||
@@ -67,14 +75,19 @@ export default function TopHeader({
         m.email?.toLowerCase().includes(q)
     );
 
-    const clubs = store.getClubs().filter(
+    const clubs = (isPlatformAdmin
+      ? store.getClubs()
+      : store.getClubs().filter(c => c.id === activeClub?.id)
+    ).filter(
       c =>
         c.id.toLowerCase().includes(q) ||
         c.name.toLowerCase().includes(q) ||
         c.registrationNo.toLowerCase().includes(q)
     );
 
-    const branches = store.getBranches().filter(
+    const branches = store.getBranches(activeClub?.id)
+      .filter(b => isPlatformAdmin || activeRole !== 'BRANCH_MANAGER' || b.id === activeBranch?.id)
+      .filter(
       b =>
         b.id.toLowerCase().includes(q) ||
         b.name.toLowerCase().includes(q) ||
@@ -115,7 +128,7 @@ export default function TopHeader({
         invoices.length +
         tasks.length,
     };
-  }, [searchQuery]);
+  }, [searchQuery, isPlatformAdmin, activeClub?.id, activeBranch?.id, activeRole]);
 
   const pendingApprovalsCount = store.approvals.filter(a => a.status === 'Pending').length;
   const openTasksCount = store.tasks.filter(t => t.status === 'Open').length;
