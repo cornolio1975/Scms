@@ -5,7 +5,7 @@
  * Sections 7 & 23: Member roster, CSV import wizard, duplicate detection, and Member 360 launch pad
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { store } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
 import { Member } from '@/types';
@@ -25,6 +25,7 @@ import {
   HeartHandshake,
 } from 'lucide-react';
 import Member360 from './Member360';
+import { getNormalizedMembers } from '@/lib/repositories/members';
 
 export default function MembersDirectory() {
   const { activeClub, activeBranch, currentUser } = useAuth();
@@ -32,6 +33,8 @@ export default function MembersDirectory() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [roleFilter, setRoleFilter] = useState('All');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [normalizedMembers, setNormalizedMembers] = useState<Member[] | null>(null);
+  const [memberLoadError, setMemberLoadError] = useState<string | null>(null);
 
   // New Member Modal
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -51,7 +54,27 @@ export default function MembersDirectory() {
   const [importStep, setImportStep] = useState(1);
   const [importPreviewCount, setImportPreviewCount] = useState(0);
 
-  const members = store.getMembers(activeClub?.id, activeBranch?.id);
+  const legacyMembers = store.getMembers(activeClub?.id, activeBranch?.id);
+  const members = normalizedMembers ?? legacyMembers;
+
+  useEffect(() => {
+    let cancelled = false;
+    setNormalizedMembers(null);
+    setMemberLoadError(null);
+
+    getNormalizedMembers(activeClub?.id, activeBranch?.id)
+      .then(data => {
+        if (!cancelled) setNormalizedMembers(data);
+      })
+      .catch(error => {
+        console.error('Normalized member load failed; using legacy fallback.', error);
+        if (!cancelled) setMemberLoadError('Using legacy member data while the database connection is unavailable.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeClub?.id, activeBranch?.id]);
 
   const filteredMembers = members.filter(m => {
     const matchesSearch =
@@ -154,6 +177,12 @@ export default function MembersDirectory() {
           </button>
         </div>
       </div>
+
+      {memberLoadError && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
+          {memberLoadError}
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
