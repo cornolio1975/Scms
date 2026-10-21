@@ -108,7 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Compute authorized clubs for current user
   const authorizedClubs = React.useMemo(() => {
     if (!currentUser) return [];
-    if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER'].includes(activeRole)) {
+    if (['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole)) {
       return store.getClubs();
     }
     const permittedClubIds = new Set(
@@ -122,7 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!currentUser || !activeClubId) return [];
     const clubBranches = store.getBranches(activeClubId);
 
-    if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) {
+    if (['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) {
       return clubBranches;
     }
 
@@ -208,12 +208,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const canAccessClub = (clubId: string): boolean => {
-    if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER'].includes(activeRole)) return true;
+    if (['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole)) return true;
     return authorizedClubs.some(c => c.id === clubId);
   };
 
   const canAccessBranch = (branchId: string): boolean => {
-    if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) return true;
+    if (['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) return true;
     return authorizedBranches.some(b => b.id === branchId);
   };
 
