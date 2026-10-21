@@ -7,7 +7,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, SystemRole, Club, ClubBranch } from '@/types';
-import { store, INITIAL_USERS } from '@/lib/store';
+import { store } from '@/lib/store';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -47,29 +47,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: { user } } = await supabase.auth.getUser();
         
         if (user) {
-          // Fetch actual role from DB
-          const { data: userRole } = await supabase
-            .from('user_roles')
-            .select('role')
-            .eq('user_id', user.id)
-            .limit(1)
-            .single();
-            
-          const role = userRole?.role || 'MEMBER';
-          
-          // Create a mock User object from session for context compatibility
-          const mockUser: User = {
+          // Load the complete DB-backed role scope. Authorization must not be
+          // reconstructed from browser state or user metadata.
+          const [{ data: profile }, { data: roleRows }] = await Promise.all([
+            supabase
+              .from('profiles')
+              .select('full_name, phone, status')
+              .eq('id', user.id)
+              .single(),
+            supabase
+              .from('user_roles')
+              .select('role, club_id, branch_id, granted_at')
+              .eq('user_id', user.id)
+              .order('granted_at', { ascending: true }),
+          ]);
+
+          const roles = (roleRows || []).map(row => ({
+            role: row.role as SystemRole,
+            clubId: row.club_id || undefined,
+            branchId: row.branch_id || undefined,
+            grantedAt: row.granted_at || user.created_at,
+          }));
+
+          const role = roles[0]?.role || 'MEMBER';
+          const scopedRole = roles.find(assignment => assignment.role === role);
+          const profileStatus =
+            profile?.status === 'SUSPENDED'
+              ? 'Suspended'
+              : profile?.status === 'INACTIVE'
+                ? 'Inactive'
+                : 'Active';
+
+          const sessionUser: User = {
             id: user.id,
             email: user.email || '',
-            fullName: user.user_metadata?.full_name || 'User',
-            status: 'Active',
-            roles: [{ role, grantedAt: new Date().toISOString() }],
+            fullName: profile?.full_name || user.user_metadata?.full_name || 'User',
+            phone: profile?.phone || undefined,
+            status: profileStatus,
+            roles,
             activeRole: role,
+            activeClubId: scopedRole?.clubId,
+            activeBranchId: scopedRole?.branchId,
             createdAt: user.created_at,
           };
-          
-          setCurrentUser(mockUser);
-          setActiveRole(role as SystemRole);
+
+          setCurrentUser(sessionUser);
+          setActiveRole(role);
+          setActiveClubId(scopedRole?.clubId);
+          setActiveBranchId(scopedRole?.branchId);
         }
       } catch (e) {
         console.error('Failed to load session:', e);
@@ -83,7 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Compute authorized clubs for current user
   const authorizedClubs = React.useMemo(() => {
     if (!currentUser) return [];
-    if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER'].includes(activeRole)) {
+    if (['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole)) {
       return store.getClubs();
     }
     const permittedClubIds = new Set(
@@ -97,7 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!currentUser || !activeClubId) return [];
     const clubBranches = store.getBranches(activeClubId);
 
-    if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) {
+    if (['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) {
       return clubBranches;
     }
 
@@ -107,11 +132,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .map(r => r.branchId!)
     );
 
-    // If user has branch-specific roles, filter; otherwise if club-level, show all
+    // Branch-scoped roles never inherit access to every branch simply because
+    // their assignment is incomplete. Club-level admins are handled above.
     if (permittedBranchIds.size > 0) {
       return clubBranches.filter(b => permittedBranchIds.has(b.id));
     }
-    return clubBranches;
+    return [];
   }, [currentUser, activeClubId, activeRole]);
 
   // Auto-select first authorized club & branch if none active
@@ -128,23 +154,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [authorizedBranches, activeBranchId]);
 
-  const login = async (email: string, _password?: string): Promise<boolean> => {
-    const user = store.users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (user) {
-      setCurrentUser(user);
-      setActiveRole(user.activeRole);
-      setActiveClubId(user.activeClubId);
-      setActiveBranchId(user.activeBranchId);
-      return true;
-    }
-    return false;
+  const login = async (email: string, password?: string): Promise<boolean> => {
+    if (!password) return false;
+    const { createClient } = await import('@/utils/supabase/client');
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return !error;
   };
 
   const logout = () => {
-    setCurrentUser(null);
-    setActiveRole('MEMBER');
-    setActiveClubId(undefined);
-    setActiveBranchId(undefined);
+    void (async () => {
+      try {
+        const { createClient } = await import('@/utils/supabase/client');
+        await createClient().auth.signOut();
+      } finally {
+        setCurrentUser(null);
+        setActiveRole('MEMBER');
+        setActiveClubId(undefined);
+        setActiveBranchId(undefined);
+      }
+    })();
   };
 
   const switchRole = (role: SystemRole, clubId?: string, branchId?: string) => {
@@ -163,7 +192,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const switchClub = (clubId: string) => {
     if (canAccessClub(clubId)) {
       setActiveClubId(clubId);
-      const branches = store.getBranches(clubId);
+      const clubBranches = store.getBranches(clubId);
+      const permittedBranchIds = new Set(
+        currentUser?.roles
+          .filter(r => r.clubId === clubId && r.branchId)
+          .map(r => r.branchId!) || []
+      );
+      const branches = ['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)
+        ? clubBranches
+        : clubBranches.filter(branch => permittedBranchIds.has(branch.id));
+
       if (branches.length > 0) {
         setActiveBranchId(branches[0].id);
       } else {
@@ -183,12 +221,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const canAccessClub = (clubId: string): boolean => {
-    if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER'].includes(activeRole)) return true;
+    if (['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole)) return true;
     return authorizedClubs.some(c => c.id === clubId);
   };
 
   const canAccessBranch = (branchId: string): boolean => {
-    if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) return true;
+    if (['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole)) return true;
+    if (['CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) {
+      return store.getBranches(activeClubId).some(b => b.id === branchId);
+    }
     return authorizedBranches.some(b => b.id === branchId);
   };
 

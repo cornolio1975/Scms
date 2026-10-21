@@ -7,6 +7,7 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { store } from '@/lib/store';
 import Sidebar from '@/components/Navigation/Sidebar';
 import TopHeader from '@/components/Navigation/TopHeader';
 import MobileDrawer from '@/components/Navigation/MobileDrawer';
@@ -36,6 +37,9 @@ export default function WorkspaceView({
   const [currentModule, setCurrentModule] = useState<string>(initialModule);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const { activeRole, activeClub, switchClub } = useAuth();
+  const isPlatformAdmin = ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole);
+  const platformClubs = isPlatformAdmin ? store.getClubs() : [];
 
   return (
     <div className="flex h-screen overflow-hidden bg-white text-slate-900 font-sans">
@@ -65,6 +69,36 @@ export default function WorkspaceView({
 
         <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 bg-white">
           <div className="max-w-7xl mx-auto">
+            {/* Platform Command Centre Context */}
+            {isPlatformAdmin && (
+              <div className="mb-4 rounded-2xl border border-sky-200 bg-sky-50/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-sky-700">Super Admin Command Centre</span>
+                  <p className="text-sm font-bold text-slate-900 mt-0.5">
+                    {activeClub ? `Managing: ${activeClub.name}` : 'Platform-wide overview'}
+                  </p>
+                  <p className="text-xs text-slate-500">Select a club to load its complete operational workspace.</p>
+                </div>
+                <select
+                  value={activeClub?.id || ''}
+                  onChange={e => {
+                    const club = platformClubs.find(item => item.id === e.target.value);
+                    if (club) switchClub(club.id);
+                    if (club) setCurrentModule('club-profile');
+                  }}
+                  className="min-w-64 rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-sky-300"
+                  aria-label="Select club to manage"
+                >
+                  <option value="">All clubs / platform overview</option>
+                  {platformClubs.map(club => (
+                    <option key={club.id} value={club.id}>
+                      {club.name} ({club.shortName})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Context Navigation Ribbon */}
             <div className="mb-4 flex items-center justify-between text-xs text-slate-400 pb-2 border-b border-slate-100">
               <span className="flex items-center space-x-2">
@@ -93,6 +127,8 @@ export default function WorkspaceView({
             {(currentModule === 'members' ||
               currentModule === 'all-members' ||
               currentModule === 'athletes' ||
+              currentModule === 'add-member' ||
+              currentModule === 'guardians' ||
               currentModule === 'import-members') && (
               <MembersDirectory />
             )}
@@ -116,6 +152,7 @@ export default function WorkspaceView({
             {(currentModule === 'club' ||
               currentModule === 'club-profile' ||
               currentModule === 'branches' ||
+              currentModule === 'officials' ||
               currentModule === 'onboarding') && (
               <ClubManagement />
             )}

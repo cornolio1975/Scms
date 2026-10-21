@@ -7,7 +7,7 @@
  */
 
 import React, { useState } from 'react';
-import { Member } from '@/types';
+import { Member, SystemRole } from '@/types';
 import { store } from '@/lib/store';
 import {
   User,
@@ -49,6 +49,21 @@ export default function Member360({ member, onBack }: Member360Props) {
   const memberInvoices = store.invoices.filter(i => i.memberId === member.id);
   const memberAttendance = store.attendance.filter(a => a.memberId === member.id);
   const totalBalanceDue = memberInvoices.reduce((acc, i) => acc + i.balanceDue, 0);
+
+  // One person can carry multiple operational roles. Prefer explicit account
+  // assignments, then enrich them with member-domain roles for legacy records.
+  const account = member.userId ? store.users.find(user => user.id === member.userId) : undefined;
+  const personRoles = React.useMemo(() => {
+    const roles = new Set<SystemRole>(
+      (account?.roles || [])
+        .filter(role => !role.clubId || role.clubId === member.clubId)
+        .map(role => role.role)
+    );
+    roles.add('MEMBER');
+    if (member.isAthlete) roles.add('ATHLETE');
+    if (member.isVolunteer || volunteer) roles.add('VOLUNTEER');
+    return Array.from(roles);
+  }, [account, member.clubId, member.isAthlete, member.isVolunteer, volunteer]);
 
   // Generate Digital QR Code for member verification
   React.useEffect(() => {
@@ -130,11 +145,14 @@ export default function Member360({ member, onBack }: Member360Props) {
                   Athlete
                 </span>
               )}
-              {member.isVolunteer && (
-                <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  Volunteer
+              {personRoles.map(role => (
+                <span
+                  key={role}
+                  className="px-2 py-0.5 rounded-md text-xs font-bold bg-slate-50 text-slate-700 border border-slate-200"
+                >
+                  {role.replaceAll('_', ' ')}
                 </span>
-              )}
+              ))}
             </div>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 font-medium">
@@ -202,6 +220,19 @@ export default function Member360({ member, onBack }: Member360Props) {
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="space-y-6">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900 mb-3">Unified Person Roles</h3>
+                <div className="flex flex-wrap gap-2">
+                  {personRoles.map(role => (
+                    <span key={role} className="px-2.5 py-1 rounded-lg bg-sky-50 border border-sky-200 text-sky-800 text-xs font-bold">
+                      {role.replaceAll('_', ' ')}
+                    </span>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] text-slate-500">
+                  Roles are attached to this person record; separate duplicate member profiles are not required.
+                </p>
+              </div>
               <div>
                 <h3 className="text-base font-extrabold text-slate-900 mb-3">Member Summary</h3>
                 <div className="space-y-2 text-xs">

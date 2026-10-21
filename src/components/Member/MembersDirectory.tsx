@@ -5,7 +5,7 @@
  * Sections 7 & 23: Member roster, CSV import wizard, duplicate detection, and Member 360 launch pad
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { store } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
 import { Member } from '@/types';
@@ -25,6 +25,7 @@ import {
   HeartHandshake,
 } from 'lucide-react';
 import Member360 from './Member360';
+import { createNormalizedMember, getNormalizedMembers } from '@/lib/repositories/members';
 
 export default function MembersDirectory() {
   const { activeClub, activeBranch, currentUser } = useAuth();
@@ -32,6 +33,9 @@ export default function MembersDirectory() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [roleFilter, setRoleFilter] = useState('All');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [normalizedMembers, setNormalizedMembers] = useState<Member[] | null>(null);
+  const [memberLoadError, setMemberLoadError] = useState<string | null>(null);
+  const [isSavingMember, setIsSavingMember] = useState(false);
 
   // New Member Modal
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -49,9 +53,32 @@ export default function MembersDirectory() {
   // Data Import Modal
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importStep, setImportStep] = useState(1);
-  const [importPreviewCount, setImportPreviewCount] = useState(0);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [importFileName, setImportFileName] = useState('');
+  const [importRows, setImportRows] = useState<Record<string, string>[]>([]);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
 
-  const members = store.getMembers(activeClub?.id, activeBranch?.id);
+  const legacyMembers = store.getMembers(activeClub?.id, activeBranch?.id);
+  const members = normalizedMembers ?? legacyMembers;
+
+  useEffect(() => {
+    let cancelled = false;
+    setNormalizedMembers(null);
+    setMemberLoadError(null);
+
+    getNormalizedMembers(activeClub?.id, activeBranch?.id)
+      .then(data => {
+        if (!cancelled) setNormalizedMembers(data);
+      })
+      .catch(error => {
+        console.error('Normalized member load failed; using legacy fallback.', error);
+        if (!cancelled) setMemberLoadError('Using legacy member data while the database connection is unavailable.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeClub?.id, activeBranch?.id]);
 
   const filteredMembers = members.filter(m => {
     const matchesSearch =
@@ -72,48 +99,132 @@ export default function MembersDirectory() {
     return matchesSearch && matchesStatus && matchesRole;
   });
 
-  const handleAddMemberSubmit = (e: React.FormEvent) => {
+  const handleAddMemberSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeClub) return;
 
-    store.addMember(
-      {
+    const branchId = activeBranch?.id || store.getBranches(activeClub.id)[0]?.id;
+    if (!branchId) {
+      setMemberLoadError('Select or create a branch before adding a member.');
+      return;
+    }
+
+    setIsSavingMember(true);
+    setMemberLoadError(null);
+    try {
+      await createNormalizedMember({
         clubId: activeClub.id,
-        branchId: activeBranch?.id || store.getBranches(activeClub.id)[0]?.id,
+        branchId,
         fullName: newName,
         gender: newGender,
         dob: newDob,
         icPassport: newIc,
         email: newEmail,
         phone: newPhone,
+        beltRank: newBelt,
+        weightKg: newWeight,
         isAthlete: newIsAthlete,
         isVolunteer: newIsVolunteer,
-        sportData: {
-          beltRank: newBelt,
-          weightKg: newWeight,
-        },
-      },
-      currentUser?.fullName || 'Staff'
+      });
+      const refreshed = await getNormalizedMembers(activeClub.id, activeBranch?.id);
+      setNormalizedMembers(refreshed);
+      setIsAddModalOpen(false);
+      setNewName('');
+      setNewIc('');
+      setNewEmail('');
+      setNewPhone('');
+    } catch (error) {
+      console.error('Unable to create normalized member.', error);
+      setMemberLoadError('Member could not be saved. Check your access and member details, then try again.');
+    } finally {
+      setIsSavingMember(false);
+    }
+  };
+
+  const handleCsvFile = async (file?: File) => {
+    setImportMessage(null);
+    setImportErrors([]);
+    setImportRows([]);
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      setImportErrors(['Only .csv files are supported in this validation stage.']);
+      return;
+    }
+
+    const text = await file.text();
+    const lines = text.replace(/\r/g, '').split('\n').filter(line => line.trim().length > 0);
+    if (lines.length < 2) {
+      setImportErrors(['CSV must contain a header row and at least one member row.']);
+      return;
+    }
+
+    // Conservative parser for the initial validation stage. Quoted commas are supported.
+    const parseLine = (line: string) => {
+      const cells: string[] = [];
+      let current = '';
+      let quoted = false;
+      for (let i = 0; i < line.length; i += 1) {
+        const char = line[i];
+        if (char === '"') {
+          if (quoted && line[i + 1] === '"') {
+            current += '"';
+            i += 1;
+          } else {
+            quoted = !quoted;
+          }
+        } else if (char === ',' && !quoted) {
+          cells.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      cells.push(current.trim());
+      return cells;
+    };
+
+    const headers = parseLine(lines[0]).map(header => header.toLowerCase().replace(/[^a-z0-9]/g, ''));
+    const aliases: Record<string, string[]> = {
+      fullname: ['fullname', 'name'],
+      gender: ['gender', 'sex'],
+      dob: ['dob', 'dateofbirth', 'birthdate'],
+      icpassport: ['icpassport', 'ic', 'passport', 'icpassportno'],
+    };
+    const findIndex = (key: string) => headers.findIndex(header => aliases[key].includes(header));
+    const indexes = Object.fromEntries(Object.keys(aliases).map(key => [key, findIndex(key)]));
+    const missing = Object.entries(indexes).filter(([, index]) => index < 0).map(([key]) => key);
+    if (missing.length) {
+      setImportErrors([`Missing required columns: ${missing.join(', ')}.`]);
+      return;
+    }
+
+    const errors: string[] = [];
+    const rows = lines.slice(1).map((line, offset) => {
+      const cells = parseLine(line);
+      const row = {
+        fullName: cells[indexes.fullname] || '',
+        gender: cells[indexes.gender] || '',
+        dob: cells[indexes.dob] || '',
+        icPassport: cells[indexes.icpassport] || '',
+      };
+      const rowNo = offset + 2;
+      if (!row.fullName) errors.push(`Row ${rowNo}: Full Name is required.`);
+      if (!['Male', 'Female'].includes(row.gender)) errors.push(`Row ${rowNo}: Gender must be Male or Female.`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(row.dob)) errors.push(`Row ${rowNo}: DOB must use YYYY-MM-DD.`);
+      if (!row.icPassport) errors.push(`Row ${rowNo}: IC/Passport is required.`);
+      return row;
+    });
+
+    setImportFileName(file.name);
+    setImportRows(rows);
+    setImportErrors(errors);
+    setImportMessage(
+      errors.length
+        ? 'Validation found errors. Nothing has been written to the database.'
+        : `${rows.length} rows passed initial CSV validation. Database import remains disabled until the transactional batch importer is enabled.`
     );
-
-    setIsAddModalOpen(false);
-    setNewName('');
-    setNewIc('');
-    setNewEmail('');
-    setNewPhone('');
-  };
-
-  const handleSimulateCsvUpload = () => {
-    setImportPreviewCount(45);
     setImportStep(2);
-  };
-
-  const handleCommitImport = () => {
-    setImportStep(3);
-    setTimeout(() => {
-      setIsImportModalOpen(false);
-      setImportStep(1);
-    }, 2000);
   };
 
   if (selectedMember) {
@@ -154,6 +265,12 @@ export default function MembersDirectory() {
           </button>
         </div>
       </div>
+
+      {memberLoadError && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
+          {memberLoadError}
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
@@ -389,9 +506,10 @@ export default function MembersDirectory() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold text-xs rounded-xl shadow-xs"
+                  disabled={isSavingMember}
+                  className="px-5 py-2 disabled:opacity-60 disabled:cursor-not-allowed bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold text-xs rounded-xl shadow-xs"
                 >
-                  Save Member Record
+                  {isSavingMember ? 'Saving…' : 'Save Member Record'}
                 </button>
               </div>
             </form>
@@ -419,69 +537,48 @@ export default function MembersDirectory() {
                   Upload your existing club athlete or member roster CSV/Excel spreadsheet to batch-import into Scms.
                 </p>
 
-                <div
-                  onClick={handleSimulateCsvUpload}
-                  className="border-2 border-dashed border-[#BAE6FD] hover:border-[#0284C7] bg-[#F0F9FF]/50 hover:bg-[#F0F9FF] rounded-2xl p-8 text-center cursor-pointer transition-colors space-y-2"
-                >
+                <label className="border-2 border-dashed border-[#BAE6FD] hover:border-[#0284C7] bg-[#F0F9FF]/50 hover:bg-[#F0F9FF] rounded-2xl p-8 text-center cursor-pointer transition-colors space-y-2 block">
                   <Upload size={32} className="mx-auto text-[#0284C7]" />
-                  <span className="font-bold text-sm text-slate-800 block">
-                    Choose CSV file or drag here
-                  </span>
+                  <span className="font-bold text-sm text-slate-800 block">Choose CSV file</span>
                   <span className="text-[11px] text-slate-400 block">
-                    Columns: Full Name, Gender, DOB, IC/Passport, Weight, Belt Rank
+                    Required: Full Name, Gender, DOB (YYYY-MM-DD), IC/Passport
                   </span>
-                </div>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    className="sr-only"
+                    onChange={event => void handleCsvFile(event.target.files?.[0])}
+                  />
+                </label>
               </div>
             )}
 
             {importStep === 2 && (
               <div className="space-y-4">
-                <div className="bg-sky-50 border border-sky-200 p-3.5 rounded-2xl text-xs text-sky-900 space-y-1">
-                  <span className="font-bold block">Validation Preview:</span>
-                  <p>
-                    <strong>{importPreviewCount} records detected</strong>: 43 valid records, 2 warnings (missing phone). Zero duplicate identities found.
-                  </p>
+                <div className="bg-sky-50 border border-sky-200 p-3.5 rounded-2xl text-xs text-sky-900">
+                  <span className="font-bold block">{importFileName || 'CSV validation'}</span>
+                  <p>{importMessage}</p>
                 </div>
-
-                <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl p-2 text-[11px] font-mono divide-y divide-slate-100">
-                  <div className="py-1 flex justify-between">
-                    <span>Ahmad Zulkifli (Male, 2004)</span>
-                    <span className="text-emerald-600 font-bold">Valid</span>
+                {importErrors.length > 0 && (
+                  <div className="max-h-36 overflow-y-auto rounded-xl border border-rose-200 bg-rose-50 p-3 text-[11px] text-rose-800">
+                    {importErrors.slice(0, 20).map(error => <div key={error}>{error}</div>)}
                   </div>
-                  <div className="py-1 flex justify-between">
-                    <span>Mei Ling Wong (Female, 2006)</span>
-                    <span className="text-emerald-600 font-bold">Valid</span>
+                )}
+                {importRows.length > 0 && (
+                  <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl p-2 text-[11px] divide-y divide-slate-100">
+                    {importRows.slice(0, 10).map((row, index) => (
+                      <div key={`${row.icPassport}-${index}`} className="py-1 flex justify-between gap-3">
+                        <span>{row.fullName} · {row.gender} · {row.dob}</span>
+                        <span className="font-mono text-slate-500">{row.icPassport}</span>
+                      </div>
+                    ))}
                   </div>
-                  <div className="py-1 flex justify-between">
-                    <span>Suresh Kumar (Male, 2008)</span>
-                    <span className="text-amber-600 font-bold">Warning</span>
-                  </div>
-                </div>
-
-                <div className="pt-2 flex justify-end space-x-2">
-                  <button
-                    onClick={() => setImportStep(1)}
-                    className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-700"
-                  >
-                    Back
-                  </button>
-                  <button
-                    onClick={handleCommitImport}
-                    className="px-5 py-2 bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold text-xs rounded-xl shadow-xs"
-                  >
-                    Confirm & Import Roster
+                )}
+                <div className="flex justify-end">
+                  <button onClick={() => setImportStep(1)} className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-700">
+                    Choose another file
                   </button>
                 </div>
-              </div>
-            )}
-
-            {importStep === 3 && (
-              <div className="text-center py-6 space-y-3">
-                <CheckCircle2 size={36} className="mx-auto text-emerald-600" />
-                <h4 className="font-black text-lg text-slate-900">Import Completed!</h4>
-                <p className="text-xs text-slate-500">
-                  45 member records have been successfully added to {activeClub?.shortName}.
-                </p>
               </div>
             )}
           </div>
