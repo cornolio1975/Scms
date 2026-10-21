@@ -94,23 +94,25 @@ export default function TopHeader({
         b.city.toLowerCase().includes(q)
     );
 
-    const volunteers = store.getVolunteers().filter(
-      v =>
-        v.id.toLowerCase().includes(q) ||
-        v.member?.fullName.toLowerCase().includes(q)
+    const volunteers = store.getVolunteers().filter(v =>
+      (isPlatformAdmin || v.clubId === activeClub?.id) &&
+      (v.id.toLowerCase().includes(q) || v.member?.fullName.toLowerCase().includes(q))
     );
 
-    const invoices = store.invoices.filter(
-      i =>
-        i.id.toLowerCase().includes(q) ||
+    const invoices = store.invoices.filter(i =>
+      (isPlatformAdmin ||
+        (i.clubId === activeClub?.id &&
+          (activeRole !== 'BRANCH_MANAGER' || i.branchId === activeBranch?.id))) &&
+      (i.id.toLowerCase().includes(q) ||
         i.invoiceNumber.toLowerCase().includes(q) ||
-        i.memberName.toLowerCase().includes(q)
+        i.memberName.toLowerCase().includes(q))
     );
 
-    const tasks = store.tasks.filter(
-      t =>
-        t.id.toLowerCase().includes(q) ||
-        t.title.toLowerCase().includes(q)
+    const tasks = store.tasks.filter(t =>
+      (isPlatformAdmin ||
+        (t.clubId === activeClub?.id &&
+          (activeRole !== 'BRANCH_MANAGER' || t.branchId === activeBranch?.id))) &&
+      (t.id.toLowerCase().includes(q) || t.title.toLowerCase().includes(q))
     );
 
     return {
@@ -160,7 +162,7 @@ export default function TopHeader({
           <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
           <input
             type="text"
-            placeholder="Search Member ID, Club, Branch, Invoice..."
+            placeholder={isPlatformAdmin ? 'Search all clubs, members, branches, invoices...' : 'Search this club...'}
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             onFocus={() => setIsSearchOpen(true)}
