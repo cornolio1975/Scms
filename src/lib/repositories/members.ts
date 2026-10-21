@@ -24,6 +24,11 @@ const toMemberStatus = (status?: string | null): MemberStatus => {
 export const mapDbMember = (row: DbMember): Member => {
   const roles = new Set((row.member_roles || []).map(item => item.role));
   const emergency = row.emergency_contact || {};
+  const sportData = { ...(row.sport_data || {}) };
+  if (!sportData.beltRank) {
+    sportData.beltRank = [sportData.rankName, sportData.kyu].filter(Boolean).join(' · ') || undefined;
+  }
+
   return {
     id: row.member_no,
     clubId: row.club_id,
@@ -43,7 +48,7 @@ export const mapDbMember = (row: DbMember): Member => {
     status: toMemberStatus(row.status),
     isAthlete: roles.has('ATHLETE'),
     isVolunteer: roles.has('VOLUNTEER') || Boolean(row.volunteer_profiles),
-    sportData: row.sport_data || {},
+    sportData,
     medicalNotes: row.medical_notes || undefined,
     joinedDate: row.joined_date || row.created_at.slice(0, 10),
     createdAt: row.created_at,
