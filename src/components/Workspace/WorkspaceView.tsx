@@ -37,7 +37,7 @@ export default function WorkspaceView({
   const [currentModule, setCurrentModule] = useState<string>(initialModule);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
-  const { activeRole, activeClub, setActiveClub } = useAuth();
+  const { activeRole, activeClub, switchClub } = useAuth();
   const isPlatformAdmin = ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole);
   const platformClubs = isPlatformAdmin ? store.getClubs() : [];
 
@@ -83,7 +83,7 @@ export default function WorkspaceView({
                   value={activeClub?.id || ''}
                   onChange={e => {
                     const club = platformClubs.find(item => item.id === e.target.value);
-                    setActiveClub(club);
+                    if (club) switchClub(club.id);
                     if (club) setCurrentModule('club-profile');
                   }}
                   className="min-w-64 rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-sky-300"
