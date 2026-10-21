@@ -54,6 +54,9 @@ export default function MembersDirectory() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importStep, setImportStep] = useState(1);
   const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [importFileName, setImportFileName] = useState('');
+  const [importRows, setImportRows] = useState<Record<string, string>[]>([]);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
 
   const legacyMembers = store.getMembers(activeClub?.id, activeBranch?.id);
   const members = normalizedMembers ?? legacyMembers;
@@ -138,10 +141,90 @@ export default function MembersDirectory() {
     }
   };
 
-  const handleCsvImportUnavailable = () => {
+  const handleCsvFile = async (file?: File) => {
+    setImportMessage(null);
+    setImportErrors([]);
+    setImportRows([]);
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      setImportErrors(['Only .csv files are supported in this validation stage.']);
+      return;
+    }
+
+    const text = await file.text();
+    const lines = text.replace(/\r/g, '').split('\n').filter(line => line.trim().length > 0);
+    if (lines.length < 2) {
+      setImportErrors(['CSV must contain a header row and at least one member row.']);
+      return;
+    }
+
+    // Conservative parser for the initial validation stage. Quoted commas are supported.
+    const parseLine = (line: string) => {
+      const cells: string[] = [];
+      let current = '';
+      let quoted = false;
+      for (let i = 0; i < line.length; i += 1) {
+        const char = line[i];
+        if (char === '"') {
+          if (quoted && line[i + 1] === '"') {
+            current += '"';
+            i += 1;
+          } else {
+            quoted = !quoted;
+          }
+        } else if (char === ',' && !quoted) {
+          cells.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      cells.push(current.trim());
+      return cells;
+    };
+
+    const headers = parseLine(lines[0]).map(header => header.toLowerCase().replace(/[^a-z0-9]/g, ''));
+    const aliases: Record<string, string[]> = {
+      fullname: ['fullname', 'name'],
+      gender: ['gender', 'sex'],
+      dob: ['dob', 'dateofbirth', 'birthdate'],
+      icpassport: ['icpassport', 'ic', 'passport', 'icpassportno'],
+    };
+    const findIndex = (key: string) => headers.findIndex(header => aliases[key].includes(header));
+    const indexes = Object.fromEntries(Object.keys(aliases).map(key => [key, findIndex(key)]));
+    const missing = Object.entries(indexes).filter(([, index]) => index < 0).map(([key]) => key);
+    if (missing.length) {
+      setImportErrors([`Missing required columns: ${missing.join(', ')}.`]);
+      return;
+    }
+
+    const errors: string[] = [];
+    const rows = lines.slice(1).map((line, offset) => {
+      const cells = parseLine(line);
+      const row = {
+        fullName: cells[indexes.fullname] || '',
+        gender: cells[indexes.gender] || '',
+        dob: cells[indexes.dob] || '',
+        icPassport: cells[indexes.icpassport] || '',
+      };
+      const rowNo = offset + 2;
+      if (!row.fullName) errors.push(`Row ${rowNo}: Full Name is required.`);
+      if (!['Male', 'Female'].includes(row.gender)) errors.push(`Row ${rowNo}: Gender must be Male or Female.`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(row.dob)) errors.push(`Row ${rowNo}: DOB must use YYYY-MM-DD.`);
+      if (!row.icPassport) errors.push(`Row ${rowNo}: IC/Passport is required.`);
+      return row;
+    });
+
+    setImportFileName(file.name);
+    setImportRows(rows);
+    setImportErrors(errors);
     setImportMessage(
-      'CSV import is not enabled yet. No member records were changed. Use Add Member until the validated normalized import workflow is available.'
+      errors.length
+        ? 'Validation found errors. Nothing has been written to the database.'
+        : `${rows.length} rows passed initial CSV validation. Database import remains disabled until the transactional batch importer is enabled.`
     );
+    setImportStep(2);
   };
 
   if (selectedMember) {
@@ -454,25 +537,48 @@ export default function MembersDirectory() {
                   Upload your existing club athlete or member roster CSV/Excel spreadsheet to batch-import into Scms.
                 </p>
 
-                <div
-                  onClick={handleCsvImportUnavailable}
-                  className="border-2 border-dashed border-[#BAE6FD] hover:border-[#0284C7] bg-[#F0F9FF]/50 hover:bg-[#F0F9FF] rounded-2xl p-8 text-center cursor-pointer transition-colors space-y-2"
-                >
+                <label className="border-2 border-dashed border-[#BAE6FD] hover:border-[#0284C7] bg-[#F0F9FF]/50 hover:bg-[#F0F9FF] rounded-2xl p-8 text-center cursor-pointer transition-colors space-y-2 block">
                   <Upload size={32} className="mx-auto text-[#0284C7]" />
-                  <span className="font-bold text-sm text-slate-800 block">
-                    Choose CSV file or drag here
-                  </span>
+                  <span className="font-bold text-sm text-slate-800 block">Choose CSV file</span>
                   <span className="text-[11px] text-slate-400 block">
-                    Columns: Full Name, Gender, DOB, IC/Passport, Weight, Belt Rank
+                    Required: Full Name, Gender, DOB (YYYY-MM-DD), IC/Passport
                   </span>
-                </div>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    className="sr-only"
+                    onChange={event => void handleCsvFile(event.target.files?.[0])}
+                  />
+                </label>
               </div>
             )}
 
-            {importMessage && (
-              <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-2xl text-xs text-amber-900">
-                <span className="font-bold block mb-1">Import not available</span>
-                <p>{importMessage}</p>
+            {importStep === 2 && (
+              <div className="space-y-4">
+                <div className="bg-sky-50 border border-sky-200 p-3.5 rounded-2xl text-xs text-sky-900">
+                  <span className="font-bold block">{importFileName || 'CSV validation'}</span>
+                  <p>{importMessage}</p>
+                </div>
+                {importErrors.length > 0 && (
+                  <div className="max-h-36 overflow-y-auto rounded-xl border border-rose-200 bg-rose-50 p-3 text-[11px] text-rose-800">
+                    {importErrors.slice(0, 20).map(error => <div key={error}>{error}</div>)}
+                  </div>
+                )}
+                {importRows.length > 0 && (
+                  <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl p-2 text-[11px] divide-y divide-slate-100">
+                    {importRows.slice(0, 10).map((row, index) => (
+                      <div key={`${row.icPassport}-${index}`} className="py-1 flex justify-between gap-3">
+                        <span>{row.fullName} · {row.gender} · {row.dob}</span>
+                        <span className="font-mono text-slate-500">{row.icPassport}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex justify-end">
+                  <button onClick={() => setImportStep(1)} className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-700">
+                    Choose another file
+                  </button>
+                </div>
               </div>
             )}
           </div>
