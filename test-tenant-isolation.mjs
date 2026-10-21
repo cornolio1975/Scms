@@ -32,6 +32,14 @@ assert.ok(allowed.data,'Assigned tenant create should return member UUID');
 const denied=await supabase.rpc('create_member_atomic',{...base,p_full_name:marker+'-DENIED',p_ic_passport:marker+'-DENIED',p_club_id:deniedClub,p_branch_id:deniedBranch});
 assert.ok(denied.error,'Cross-tenant create must be rejected');
 
+const {data:crossTenantRows,error:crossTenantReadError}=await supabase
+  .from('members')
+  .select('id,club_id,branch_id')
+  .eq('club_id',deniedClub)
+  .limit(1);
+assert.ifError(crossTenantReadError);
+assert.equal(crossTenantRows.length,0,'Cross-tenant members must not be visible');
+
 const {data:visible,error:readError}=await supabase.from('members').select('id,club_id,branch_id').eq('id',allowed.data).single();
 assert.ifError(readError);
 assert.equal(visible.club_id,allowedClub);
