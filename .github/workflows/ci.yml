@@ -1,0 +1,31 @@
+name: SCMS verification
+on:
+  push:
+  pull_request:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: build-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - uses: actions/checkout@v4
+        with:
+          repository: cornolio1975/KarateTech3.0
+          ref: a36175073b5b69c26fc30cd6e27bb6650d070d3f
+          path: .integration/karatetech
+          persist-credentials: false
+      - run: npm run test:athlete-sync
+        env:
+          KARATETECH_TEST_ROOT: ${{ github.workspace }}/.integration/karatetech
+      - run: npx tsc --noEmit
+      - run: npm run build

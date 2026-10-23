@@ -1,17 +1,11 @@
-import { NextResponse } from 'next/server';
-import { authorizeUser } from '../util';
-import { KarateTechApiClient } from '@/lib/integrations/karatetech-sync';
-
-export const dynamic = 'force-dynamic';
-
-export async function GET(request: Request) {
-  try {
-    const { error } = await authorizeUser(request);
-    if (error) return error;
-
-    const isHealthy = await KarateTechApiClient.checkHealth();
-    return NextResponse.json({ success: true, status: isHealthy ? 'healthy' : 'down' });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
-  }
+import { authorizeUser } from "../util";
+import { KarateTechApiClient } from "@/lib/integrations/karatetech-sync";
+export async function GET(req: Request) {
+  const auth = await authorizeUser(req);
+  if (auth.error) return auth.error;
+  const isHealthy = await KarateTechApiClient.checkHealth();
+  return Response.json(
+    { success: isHealthy, isHealthy, checkedAt: new Date().toISOString() },
+    { status: isHealthy ? 200 : 503, headers: { "Cache-Control": "no-store" } },
+  );
 }

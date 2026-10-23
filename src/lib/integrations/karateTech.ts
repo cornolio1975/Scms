@@ -13,7 +13,7 @@ import {
 import { generateIdempotencyKey } from '../idGenerator';
 
 // Target KarateTech 3.0 Endpoint (Local dev server default or configured URL)
-const KARATETECH_API_URL = process.env.NEXT_PUBLIC_KARATETECH_API_URL || 'http://localhost:3000';
+const KARATETECH_API_URL = process.env.KARATETECH_API_URL || process.env.NEXT_PUBLIC_KARATETECH_API_URL || '';
 
 export interface KarateTechTournament {
   tournamentId: string;
@@ -128,14 +128,14 @@ export class KarateTechIntegrationService {
     } catch (err) {
       console.warn('KarateTech 3.0 API unreachable, utilizing resilient fallback tournaments:', err);
     }
-    return FALLBACK_TOURNAMENTS;
+    throw new Error('KarateTech tournament discovery is unavailable. Check the connection and retry.');
   }
 
   /**
    * 2. CATEGORY DISCOVERY & CACHING
    */
   static async getTournamentCategories(tournamentId: string): Promise<KarateTechCategory[]> {
-    return FALLBACK_CATEGORIES;
+    throw new Error('KarateTech categories are unavailable. Check the connection and retry.');
   }
 
   /**
