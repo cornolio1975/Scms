@@ -9,6 +9,7 @@ for (const file of [
   "0000_initial_schema.sql",
   "0001_csv_and_sync.sql",
   "20261023075653_scms_operational_upgrade.sql",
+  "20261023123733_athlete_sync_fields.sql",
 ]) {
   let sql = fs
     .readFileSync(

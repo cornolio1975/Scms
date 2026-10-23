@@ -131,3 +131,7 @@ failed/abandoned payment and reconciliation have been checked with the approved 
 The production build does not prove live account authorization or merchant configuration.
 No authenticated production browser test, actual Billplz sandbox account payment, production
 migration, Hostinger deployment or upstream KarateTech integration test is claimed by these checks.
+
+## Athlete contract follow-up
+
+See `ATHLETE_SYNC_TEST.md` for the complete mock integration test, additional athlete fields, matching receiver commit and required staging rollout.

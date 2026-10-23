@@ -351,8 +351,11 @@ export default function OperationalWorkspace({
           isVolunteer: f.has("isVolunteer"),
           beltRank: v("beltRank"),
           weightKg: v("weightKg") ? Number(v("weightKg")) : null,
+          heightCm: v("heightCm") ? Number(v("heightCm")) : null,
+          nationalityCode:v("nationalityCode"),emergencyName:v("emergencyName"),emergencyPhone:v("emergencyPhone"),
         };
       }
+      if(form === "athlete-details") {action="athlete-details-save";data={memberId:member?.id,icPassport:v("icPassport"),nationalityCode:v("nationalityCode"),weightKg:v("weightKg")?Number(v("weightKg")):null,heightCm:v("heightCm")?Number(v("heightCm")):null,beltRank:v("beltRank"),emergencyName:v("emergencyName"),emergencyPhone:v("emergencyPhone")};}
       if (form === "login") {
         action = "member-link-login";
         data = { memberId: member?.id, email: v("email") };
@@ -485,6 +488,7 @@ export default function OperationalWorkspace({
         className={input}
         name={name}
         type={type}
+        step={type === "number" ? "0.01" : undefined}
         required={required}
         maxLength={type === "text" ? 250 : undefined}
         defaultValue={defaultValue}
@@ -750,6 +754,7 @@ export default function OperationalWorkspace({
                     {m.sport_data?.participantStatus || "Approval not recorded"}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
+                    {managing && <button className="rounded border px-3 py-2 text-xs" onClick={()=>{setMember(m);setForm("athlete-details")}}>Athlete details</button>}
                     {managing && (
                       <>
                         <button
@@ -1446,6 +1451,10 @@ export default function OperationalWorkspace({
                   {field("phone", "Phone", "tel", false)}
                   {field("beltRank", "Belt / grade", "text", false)}
                   {field("weightKg", "Weight (kg)", "number", false)}
+                  {field("heightCm", "Height (cm)", "number", false)}
+                  {field("nationalityCode", "Nationality code from KarateTech countries", "text", false)}
+                  {field("emergencyName", "Emergency contact name", "text", false)}
+                  {field("emergencyPhone", "Emergency contact phone", "tel", false)}
                   <label className="block">
                     <input type="checkbox" name="isAthlete" defaultChecked />{" "}
                     Athlete
@@ -1459,6 +1468,16 @@ export default function OperationalWorkspace({
                   </p>
                 </>
               )}
+              {form === "athlete-details" && <>
+                <p className="text-sm">Update the athlete fields shared with KarateTech. Changes to IC/passport require approval again. Tournament categories and results stay in KarateTech.</p>
+                {field("icPassport","IC / passport","text",true,member?.ic_passport||"")}
+                {field("nationalityCode","Nationality code from KarateTech countries","text",false,member?.sport_data?.nationalityCode||member?.nationality||"")}
+                {field("weightKg","Weight (kg)","number",true,String(member?.sport_data?.weightKg||""))}
+                {field("heightCm","Height (cm)","number",true,String(member?.sport_data?.heightCm||""))}
+                {field("beltRank","Belt / grade","text",false,member?.sport_data?.beltRank||"")}
+                {field("emergencyName","Emergency contact name","text",false,member?.emergency_contact?.name||"")}
+                {field("emergencyPhone","Emergency contact phone","tel",false,member?.emergency_contact?.phone||"")}
+              </>}
               {form === "login" && (
                 <>
                   {field(

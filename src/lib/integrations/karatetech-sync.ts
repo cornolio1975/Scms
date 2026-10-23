@@ -2,16 +2,8 @@ import { gatewayDb } from "@/lib/payments/admin";
 import { createHash } from "node:crypto";
 import { session, HttpError } from "@/lib/scms/server";
 import { canManage, identityConflicts } from "@/lib/scms/access";
-export interface KarateTechParticipantPayload {
-  scms_member_id: string;
-  scms_club_id: string;
-  club_name: string;
-  participant_name: string;
-  gender: string;
-  date_of_birth: string | null;
-  email: string | null;
-  phone: string | null;
-}
+import {buildAthletePayload, participantDifferences, type AthletePayload} from "./athlete-contract";
+export type KarateTechParticipantPayload = AthletePayload;
 export type Conflict = {
   fieldName: string;
   scmsValue: unknown;
@@ -22,6 +14,7 @@ export interface SyncStatusResponse {
   status: "SUCCESS" | "ERROR" | "CONFLICT";
   message?: string;
   conflicts?: Conflict[];
+  operation?: "created" | "updated" | "unchanged";
 }
 export interface BulkSyncResult {
   total: number;
@@ -66,7 +59,9 @@ export class KarateTechApiClient {
   }
   static async checkHealth() {
     try {
-      return (await this.request("/api/integration/scms/health")).ok;
+      const r=await this.request("/api/integration/scms/health");
+      if (!r.ok) return false;
+      const d=await r.json(); return d.success===true && d.contract_version===1;
     } catch {
       return false;
     }
@@ -124,7 +119,7 @@ export class KarateTechApiClient {
         502,
         "KarateTech did not return a participant identity",
       );
-    return { status: "SUCCESS", karatetechId: id };
+    return { status: "SUCCESS", karatetechId: id, operation:d.operation };
   }
 }
 export async function participantPayload(id: string, write = false) {
@@ -132,7 +127,7 @@ export async function participantPayload(id: string, write = false) {
   const { data: m, error } = await s.db
     .from("members")
     .select(
-      "id,club_id,branch_id,full_name,gender,date_of_birth,email,phone,status,sport_data,clubs(name,display_name)",
+      "id,member_no,club_id,branch_id,full_name,gender,date_of_birth,ic_passport,nationality,email,phone,emergency_contact,status,sport_data,updated_at,clubs(name,display_name)",
     )
     .eq("id", id)
     .single();
@@ -160,16 +155,10 @@ export async function participantPayload(id: string, write = false) {
       "Correct the participant name, DOB and gender before syncing",
     );
   const club = Array.isArray(m.clubs) ? m.clubs[0] : m.clubs;
-  const payload: KarateTechParticipantPayload = {
-    scms_member_id: m.id,
-    scms_club_id: m.club_id,
-    club_name: club?.display_name || club?.name,
-    participant_name: m.full_name.trim(),
-    gender: m.gender,
-    date_of_birth: m.date_of_birth,
-    email: m.email || null,
-    phone: m.phone || null,
-  };
+  const {data:athlete,error:athleteError}=await s.db.from("member_roles").select("member_id").eq("member_id",id).eq("role","ATHLETE").maybeSingle();
+  if (athleteError) throw new HttpError(503,"Athlete role could not be verified");
+  if (!athlete || m.status!=="ACTIVE") throw new HttpError(422,"Only active athletes can be synchronised");
+  const payload=buildAthletePayload(m,club || {});
   if (!payload.club_name)
     throw new HttpError(422, "Club display name is required");
   return { ...s, member: m, payload };
@@ -202,10 +191,12 @@ export class KarateTechSyncService {
     supplied: KarateTechParticipantPayload,
     _userId?: string,
   ) {
-    const { user, payload } = await participantPayload(
+    const { user, payload, member } = await participantPayload(
       supplied.scms_member_id,
       true,
     );
+    if(!["APPROVED","SYNCED","ACTIVE"].includes(member.sport_data?.participantStatus))
+      throw new HttpError(422,"Participant approval required");
     const key =
       "SCMS-" +
       createHash("sha256").update(JSON.stringify(payload)).digest("hex");
@@ -251,8 +242,12 @@ export class KarateTechSyncService {
         await state("CONFLICT", undefined, response.message);
         return { success: false, error: response.message };
       }
+      const saved=await KarateTechApiClient.getSyncStatus(payload.scms_member_id);
+      const differences=saved ? participantDifferences(payload,saved) : ["participant_missing"];
+      if (!saved || saved.karatetech_participant_id!==response.karatetechId || differences.length)
+        throw new HttpError(502,"KarateTech read-back did not match: "+differences.join(", "));
       await state("SUCCESS", response.karatetechId);
-      return { success: true, karatetechId: response.karatetechId };
+      return { success: true, karatetechId: response.karatetechId, operation:response.operation };
     } catch (e) {
       const message = e instanceof Error ? e.message : "Sync failed";
       await state("ERROR", undefined, message);
@@ -267,7 +262,7 @@ export class KarateTechSyncService {
     if (participants.length < 1 || participants.length > 100)
       throw new HttpError(400, "Select between 1 and 100 participants");
     const result: BulkSyncResult = {
-      total: participants.length,
+      total: new Set(participants.map(p=>p.scms_member_id)).size,
       created: 0,
       updated: 0,
       already_synced: 0,
@@ -281,7 +276,9 @@ export class KarateTechSyncService {
           throw new HttpError(403, "Participant does not belong to this club");
         const r = await this.executeSync(x.payload);
         if (!r.success) throw Error(r.error);
-        result.updated++;
+        if(r.operation==="created") result.created++;
+        else if(r.operation==="unchanged") result.already_synced++;
+        else result.updated++;
       } catch (e) {
         result.failed++;
         result.failures.push({

@@ -7,7 +7,8 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint .",
-    "test": "node --test tests/logic.test.cjs && node tests/database.test.mjs"
+    "test": "node --test tests/logic.test.cjs && node tests/database.test.mjs",
+    "test:athlete-sync": "node --test tests/athlete-sync.test.cjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
