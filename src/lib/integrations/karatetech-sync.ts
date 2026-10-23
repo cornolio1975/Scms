@@ -59,7 +59,7 @@ export class KarateTechApiClient {
   }
   static async checkHealth() {
     try {
-      const r=await this.request("/api/integration/scms/health");
+      const r=await this.request("/api/integration/scms/health/");
       if (!r.ok) return false;
       const d=await r.json(); return d.success===true && d.contract_version===1;
     } catch {
@@ -68,7 +68,7 @@ export class KarateTechApiClient {
   }
   static async getSyncStatus(id: string) {
     const r = await this.request(
-      "/api/integration/scms/sync-status?scms_member_id=" +
+      "/api/integration/scms/sync-status/?scms_member_id=" +
         encodeURIComponent(id),
     );
     if (r.status === 404) return null;
@@ -93,7 +93,7 @@ export class KarateTechApiClient {
     payload: KarateTechParticipantPayload,
     key: string,
   ): Promise<SyncStatusResponse> {
-    const r = await this.request("/api/integration/scms/participants", {
+    const r = await this.request("/api/integration/scms/participants/", {
       method: "POST",
       headers: { "X-Request-ID": key, "Idempotency-Key": key },
       body: JSON.stringify(payload),

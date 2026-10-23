@@ -33,3 +33,9 @@ Only active members with an ATHLETE role can sync. Approval is checked in the ap
 5. In staging, sign in as Club Admin, add a fictional athlete with all required fields, approve, preview sync, send, compare the target fields and retry. Repeat with Branch Manager and Observer to verify deployed sessions and tenant boundaries. Check denied requests, network failure/retry, server logs and database audit records before production rollout.
 
 The published SCMS private visual review has no backend connection and cannot run this integration. This repair does not activate payments, alter real athletes or deploy Hostinger/Supabase production changes.
+
+## Local compiled-app check (2026-10-23)
+
+Both Next.js apps were opened together using two disposable PGlite databases, fictional athlete records, synthetic local sessions and a local reverse proxy. The browser check exercised member creation, approval, receiver health, payload preview, first sync, repeat sync and a measurement update into the KarateTech participant list. These test-only session/transport adapters are outside the production source. Supabase Auth, hosted HTTPS, multi-process PostgreSQL concurrency and the complete tournament/payment workflow remain staging checks.
+
+This check found that KarateTech's `trailingSlash: true` issues HTTP 308 redirects for unsuffixed API URLs. SCMS deliberately rejects redirects to protect the integration key, so the client now uses canonical trailing-slash receiver URLs. The isolated integration HTTP fixture now reproduces those redirects to prevent regression.
