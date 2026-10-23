@@ -223,6 +223,16 @@ export class KarateTechSyncService {
       const remote = await KarateTechApiClient.getSyncStatus(
         payload.scms_member_id,
       );
+      // Unconfirmed KarateTech edits must not be erased by a forward SCMS sync.
+      if (remote?.source_snapshot) {
+        const shared = ['participant_name','gender','date_of_birth','email','phone','passport_ic','nationality_code','weight','height','emergency_contact_name','emergency_contact_phone'];
+        const same = (a: unknown, b: unknown, field: string) => ['weight','height'].includes(field) && a != null && b != null ? Number(a) === Number(b) : a === b;
+        const pending = shared.filter(field => !same(remote[field], remote.source_snapshot[field], field) && !same(remote[field], payload[field as keyof AthletePayload], field));
+        if (pending.length) {
+          await state('CONFLICT', remote.karatetech_participant_id, 'Confirm the pending KarateTech update to SCMS first: ' + pending.join(', '));
+          return {success: false, error: 'KarateTech has pending changes. Use Update SCMS in KarateTech Participants and confirm them first.'};
+        }
+      }
       const conflicts = remote ? identityConflicts(payload, remote) : [];
       if (conflicts.length) {
         await state(

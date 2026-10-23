@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: cornolio1975/KarateTech3.0
-          ref: 1e8a39b62c7ea5a53dbb8b1adfa551b006b0c475
+          ref: a36175073b5b69c26fc30cd6e27bb6650d070d3f
           path: .integration/karatetech
           persist-credentials: false
       - run: npm run test:athlete-sync
