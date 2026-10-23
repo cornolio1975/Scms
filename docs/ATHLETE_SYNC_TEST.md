@@ -2,7 +2,7 @@
 
 ## Run the test
 
-Check out SCMS `fix/scms-athlete-contract` and KarateTech3.0 receiver commit `1e8a39b62c7ea5a53dbb8b1adfa551b006b0c475` (full SHA is pinned in CI). In each repository run `npm ci`. From SCMS run:
+Check out SCMS `feat/scms-reliability-upgrade` and KarateTech3.0 receiver commit `1e8a39b62c7ea5a53dbb8b1adfa551b006b0c475` (full SHA is pinned in CI). In each repository run `npm ci`. From SCMS run:
 
 ```bash
 KARATETECH_TEST_ROOT=/absolute/path/to/KarateTech3.0 npm run test:athlete-sync
