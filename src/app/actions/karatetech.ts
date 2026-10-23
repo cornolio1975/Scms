@@ -1,21 +1,32 @@
-'use server';
-
-import { KarateTechApiClient, KarateTechSyncService, KarateTechParticipantPayload } from '@/lib/integrations/karatetech-sync';
-
+"use server";
+import { session, HttpError } from "@/lib/scms/server";
+import {
+  KarateTechApiClient,
+  KarateTechSyncService,
+  type KarateTechParticipantPayload,
+} from "@/lib/integrations/karatetech-sync";
 export async function testKarateTechConnection() {
-  try {
-    const isHealthy = await KarateTechApiClient.checkHealth();
-    return { success: true, isHealthy };
-  } catch (error: any) {
-    return { success: false, error: error.message || 'Connection failed' };
-  }
+  const s = await session();
+  if (
+    !s.roles.some((r) =>
+      [
+        "SUPERADMIN",
+        "SYSTEM_ADMIN",
+        "CLUB_ADMIN",
+        "CLUB_CO_ADMIN",
+        "BRANCH_MANAGER",
+        "OBSERVER",
+      ].includes(r.role),
+    )
+  )
+    throw new HttpError(403, "Integration access denied");
+  const isHealthy = await KarateTechApiClient.checkHealth();
+  return { success: isHealthy, isHealthy };
 }
-
-export async function bulkSyncParticipants(clubId: string, participants: KarateTechParticipantPayload[], userId: string) {
-  try {
-    const result = await KarateTechSyncService.executeBulkSync(clubId, participants, userId);
-    return result;
-  } catch (error: any) {
-    return { success: false, error: error.message || 'Sync failed' };
-  }
+export async function bulkSyncParticipants(
+  clubId: string,
+  participants: KarateTechParticipantPayload[],
+  _userId?: string,
+) {
+  return KarateTechSyncService.executeBulkSync(clubId, participants);
 }

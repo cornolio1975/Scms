@@ -60,3 +60,5 @@
   min-height: 44px;
   min-width: 44px;
 }
+
+@media print {body *{visibility:hidden!important}.scms-receipt,.scms-receipt *{visibility:visible!important}.scms-receipt{position:absolute!important;top:0;left:0;max-width:none!important;width:100%;margin:0!important;box-shadow:none!important}.scms-receipt .print\:hidden,.scms-receipt .print\:hidden *{visibility:hidden!important}}

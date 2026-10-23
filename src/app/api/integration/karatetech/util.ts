@@ -1,49 +1,41 @@
-import { createClient } from '@/utils/supabase/server';
-import { NextResponse } from 'next/server';
-
-export async function authorizeUser(request?: Request) {
-  // Test hook for E2E script
-  if (request && process.env.NODE_ENV !== 'production') {
-    const testRole = request.headers.get('X-Test-Role');
-    if (testRole) {
-      if (testRole === 'UNAUTHENTICATED') {
-        return { error: NextResponse.json({ success: false, message: 'Unauthenticated' }, { status: 401 }) };
-      }
-      const isAdmin = ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(testRole);
-      const isClubManager = ['CLUB_ADMIN', 'CLUB_CO_ADMIN', 'BRANCH_MANAGER'].includes(testRole);
-      const isObserver = testRole === 'OBSERVER';
-
-      if (!isAdmin && !isClubManager && !isObserver) {
-        return { error: NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 403 }) };
-      }
-      return { user: { id: 'test-user-id' }, role: testRole, isAdmin, isClubManager, isObserver };
-    }
+import { session } from "@/lib/scms/server";
+import { canManage } from "@/lib/scms/access";
+import { NextResponse } from "next/server";
+export async function authorizeUser(_request?: Request) {
+  try {
+    const s = await session();
+    const role = s.roles[0]?.role || "MEMBER";
+    const isAdmin = s.roles.some((r) =>
+      ["SUPERADMIN", "SYSTEM_ADMIN"].includes(r.role),
+    );
+    const isClubManager = s.roles.some((r) =>
+      [
+        "CLUB_ADMIN",
+        "CLUB_CO_ADMIN",
+        "BRANCH_MANAGER",
+        "BRANCH_CO_ADMIN",
+      ].includes(r.role),
+    );
+    const isObserver = s.roles.some((r) => r.role === "OBSERVER");
+    if (!isAdmin && !isClubManager && !isObserver)
+      return {
+        error: NextResponse.json({ error: "Not authorized" }, { status: 403 }),
+      };
+    return {
+      ...s,
+      role,
+      isAdmin,
+      isClubManager,
+      isObserver,
+      canManage: (club: string, branch?: string | null) =>
+        canManage(s.roles, club, branch),
+    };
+  } catch (e) {
+    return {
+      error: NextResponse.json(
+        { error: e instanceof Error ? e.message : "Unauthorized" },
+        { status: 401 },
+      ),
+    };
   }
-
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-  if (authError || !user) {
-    return { error: NextResponse.json({ success: false, message: 'Unauthenticated' }, { status: 401 }) };
-  }
-
-  const { data: userRole } = await supabase
-    .from('user_roles')
-    .select('role')
-    .eq('user_id', user.id)
-    .limit(1)
-    .single();
-
-  const role = userRole?.role || 'MEMBER';
-
-  // Basic check: Admin, Club Manager, Observer
-  const isAdmin = ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(role);
-  const isClubManager = ['CLUB_ADMIN', 'CLUB_CO_ADMIN', 'BRANCH_MANAGER'].includes(role);
-  const isObserver = role === 'OBSERVER';
-
-  if (!isAdmin && !isClubManager && !isObserver) {
-    return { error: NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 403 }) };
-  }
-
-  return { user, role, isAdmin, isClubManager, isObserver };
 }
