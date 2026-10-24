@@ -6,7 +6,9 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "package:hostinger": "node scripts/package-hostinger.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
@@ -27,5 +29,8 @@
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=22 <23"
   }
 }
