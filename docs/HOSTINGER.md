@@ -31,6 +31,25 @@ variables are compiled into browser assets; changing them requires a rebuild.
 Keep KARATETECH_API_KEY server-side and preserve the existing integration URL.
 Never put service-role keys or secrets in NEXT_PUBLIC_ variables or the ZIP.
 
+### Athlete transfer connection errors
+
+Set `KARATETECH_API_URL` to the actual KarateTech **Node.js server** origin
+(including any configured base path). Set `KARATETECH_API_KEY` to the secret
+accepted by that server. Restart SCMS after changing server environment values.
+SCMS no longer silently connects to localhost when production configuration is missing.
+
+The confirmed KarateTech destination for this project is
+`https://karatetech3.spsportdatasolution.org`. Set
+`KARATETECH_API_URL=https://karatetech3.spsportdatasolution.org` in the SCMS
+server environment; changing `.env.example` alone does not change a live deployment.
+
+The receiving deployment must implement `GET /api/integration/scms/health`,
+`POST /api/integration/scms/participants`, and
+`POST /api/integration/scms/participants/batch`. A static KarateTech export
+cannot serve these routes. The current KarateTech3.0 main branch has public
+tournament routes but no SCMS athlete receiver; deploying SCMS alone does not
+add those endpoints to KarateTech. Confirm the receiver deployment before retrying.
+
 In the SCMS Supabase project's Auth URL settings, set the production Site URL to
 `https://scms.spsportdatasolution.org` and allow these redirect destinations:
 
@@ -59,3 +78,22 @@ database migration or destructive operation is required by this preparation.
 References:
 - https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/
 - https://nextjs.org/docs/app/getting-started/deploying
+
+## SCMS athlete transfer and new login portal
+
+The login page now introduces both SCMS club operations and KarateTech 3.0
+competition workflows. Sign-in still uses Supabase and server-side role dispatch.
+Passwords are submitted exactly as entered; email whitespace is trimmed.
+
+Apply `supabase/migrations/0010_sync_tracking.sql` to the **SCMS** database.
+Configure `SUPABASE_SERVICE_ROLE_KEY` only on the SCMS server if administrator
+access is needed to resolve club members beyond the caller's profile RLS.
+The transfer routes authenticate the caller and verify club/branch ownership
+before using this client; observers cannot write. Never expose this key publicly.
+
+Under Integrations → KarateTech, select athletes, complete missing real details,
+and send. Transfer-only edits do not change the SCMS profile. Successful entries
+are deselected; failed entries remain selected with their reason. No dummy DOB,
+gender, weight, height, or passport is substituted. Only receiver-confirmed writes
+are reported as successful. Receivers must implement the contract described in
+KarateTech's `docs/SCMS_INTEGRATION.md` and use the same shared API key.

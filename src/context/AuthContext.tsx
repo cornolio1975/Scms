@@ -6,6 +6,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 import { User, SystemRole, Club, ClubBranch } from '@/types';
 import { store, INITIAL_USERS } from '@/lib/store';
 
@@ -30,6 +31,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeRole, setActiveRole] = useState<SystemRole>('MEMBER');
   const [activeClubId, setActiveClubId] = useState<string | undefined>(undefined);
@@ -65,6 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let subscription: any;
+    let disposed = false;
 
     async function loadSession(userObj?: any) {
       try {
@@ -195,9 +198,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       });
       subscription = data.subscription;
+      if (disposed) subscription.unsubscribe();
+    }).catch(() => {
+      // Public entry pages must remain usable when the auth service is unavailable.
+      setIsLoading(false);
     });
 
     return () => {
+      disposed = true;
       if (subscription) subscription.unsubscribe();
     };
   }, []);
@@ -355,7 +363,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  if (isLoading) {
+  if (isLoading && pathname !== '/login' && pathname !== '/') {
     return <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
     </div>;
