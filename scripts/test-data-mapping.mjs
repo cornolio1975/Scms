@@ -50,12 +50,12 @@ assert.doesNotThrow(() => {
 const invalidPayload = { ...payload1, full_name: '' };
 assert.throws(() => {
   KarateTechSyncService.validatePayload(invalidPayload);
-}, /Missing required participant fields/, 'Missing full_name must fail validation');
+}, /Missing or invalid required participant fields/, 'Missing full_name must fail validation');
 
 const invalidWeightPayload = { ...payload1, weight: NaN };
 assert.throws(() => {
   KarateTechSyncService.validatePayload(invalidWeightPayload);
-}, /Missing required participant fields/, 'Invalid weight must fail validation');
+}, /Missing or invalid required participant fields/, 'Invalid weight must fail validation');
 console.log('✓ Required and optional field validations enforce data integrity.');
 
 // 3. Null & Empty-string Handling
@@ -74,7 +74,7 @@ const memberWithNulls = {
 const payloadNulls = toKarateTechPayload(memberWithNulls);
 assert.strictEqual(payloadNulls.email, null, 'Empty email string must become null');
 assert.strictEqual(payloadNulls.phone, null, 'Null phone must remain null');
-assert.strictEqual(payloadNulls.passport_ic, 'N/A', 'Empty passport_ic defaults safely to N/A');
+assert.strictEqual(payloadNulls.passport_ic, '', 'Missing passport stays empty and must be completed before transfer');
 console.log('✓ Null and empty strings sanitized without fabricating identity data.');
 
 // 4. Date of Birth serialization
@@ -98,7 +98,7 @@ assert.strictEqual(toKarateTechPayload({ ...sampleMember, gender: 'FEMALE' }).ge
 assert.strictEqual(toKarateTechPayload({ ...sampleMember, gender: 'F' }).gender, 'Female');
 assert.strictEqual(toKarateTechPayload({ ...sampleMember, gender: 'male' }).gender, 'Male');
 assert.strictEqual(toKarateTechPayload({ ...sampleMember, gender: 'M' }).gender, 'Male');
-assert.strictEqual(toKarateTechPayload({ ...sampleMember, gender: 'Other' }).gender, 'Male', 'Fallback strictly satisfies KarateTech DB CHECK (Male/Female)');
+assert.strictEqual(toKarateTechPayload({ ...sampleMember, gender: 'Other' }).gender, null, 'Unknown gender must be completed, never invented');
 console.log('✓ Gender enum strictly conforms to KarateTech CHECK (gender IN (\'Male\', \'Female\')).');
 
 // 6. Single and Batch Payload Consistency

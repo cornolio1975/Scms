@@ -73,6 +73,7 @@ export interface BulkSyncResult {
   already_synced: number;
   failed: number;
   failures: Array<{ scms_member_id: string; reason: string }>;
+  mappings?: Record<string, string>;
 }
 
 /**
@@ -120,7 +121,7 @@ export function toKarateTechPayload(input: any): KarateTechParticipantPayload {
     input.icPassport ||
     input.passportIc ||
     input.ic_passport ||
-    'N/A'
+    ''
   ).trim();
 
   const rawWeight = input.weight ?? input.weightKg ?? input.sportData?.weightKg;
@@ -189,29 +190,48 @@ export function toKarateTechPayload(input: any): KarateTechParticipantPayload {
 
 export class KarateTechApiClient {
   private static getBaseUrl(): string {
-    const raw = process.env.KARATETECH_API_URL || process.env.NEXT_PUBLIC_KARATETECH_API_URL || 'http://localhost:3001';
-    return raw.split(',')[0].trim().replace(/\/$/, '');
+    const raw = process.env.KARATETECH_API_URL?.trim() || process.env.NEXT_PUBLIC_KARATETECH_API_URL?.trim();
+    if (!raw && process.env.NODE_ENV === 'production') {
+      throw new Error('KarateTech connection is not configured. Set KARATETECH_API_URL on the SCMS server to the KarateTech Node.js server URL.');
+    }
+    let url: URL;
+    try {
+      url = new URL(raw || 'http://localhost:3001');
+    } catch {
+      throw new Error('Invalid KARATETECH_API_URL. Use one complete http:// or https:// server URL.');
+    }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+      throw new Error('Invalid KARATETECH_API_URL. Use an http:// or https:// server URL without credentials, query parameters or fragments.');
+    }
+    return url.toString().replace(/\/$/, '');
   }
 
   private static getApiKey(): string {
-    return process.env.KARATETECH_API_KEY || 'local-dev-secret-key-123';
+    const key = process.env.KARATETECH_API_KEY?.trim();
+    if (!key && process.env.NODE_ENV === 'production') {
+      throw new Error('KarateTech authentication is not configured. Set KARATETECH_API_KEY on the SCMS server to the key accepted by KarateTech.');
+    }
+    return key || 'local-dev-secret-key-123';
   }
 
   private static getTimeout(): number {
-    return parseInt(process.env.KARATETECH_API_TIMEOUT_MS || '15000', 10);
+    const timeout = Number(process.env.KARATETECH_API_TIMEOUT_MS || '15000');
+    return Number.isFinite(timeout) && timeout > 0 ? timeout : 15000;
   }
 
   private static async fetchWithTimeout(endpoint: string, options: RequestInit = {}): Promise<Response> {
+    const baseUrl = this.getBaseUrl();
+    const apiKey = this.getApiKey();
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), this.getTimeout());
 
     try {
-      const response = await fetch(`${this.getBaseUrl()}${endpoint}`, {
+      const response = await fetch(`${baseUrl}${endpoint}`, {
         ...options,
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.getApiKey()}`,
+          'Authorization': `Bearer ${apiKey}`,
           ...(options.headers || {}),
         },
       });
@@ -222,7 +242,7 @@ export class KarateTechApiClient {
       if (error.name === 'AbortError') {
         throw new Error('KarateTech API Request Timeout');
       }
-      throw error;
+      throw new Error('KarateTech connection failed (fetch failed). Check that KARATETECH_API_URL points to a running Node.js deployment and that its DNS and HTTPS certificate work.');
     }
   }
 
@@ -237,8 +257,8 @@ export class KarateTechApiClient {
         return data.status === 'healthy' || data.success === true;
       }
       return false;
-    } catch {
-      return false;
+    } catch (error) {
+      throw error;
     }
   }
 
@@ -297,6 +317,10 @@ export class KarateTechApiClient {
     const data = await res.json().catch(() => ({}));
     const ktId = data.karate_participant_id || data.karatetech_participant_id;
 
+    if (res.status === 404 || res.status === 405 || res.headers.get('content-type')?.includes('text/html')) {
+      throw new Error('KarateTech athlete receiver is unavailable. Deploy the /api/integration/scms/participants endpoint on the KarateTech Node.js server; a static website cannot receive athletes.');
+    }
+
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) throw new Error('AUTHENTICATION_FAILED');
       if (res.status === 409 || data.status === 'SUSPECTED_DUPLICATE') {
@@ -319,6 +343,8 @@ export class KarateTechApiClient {
         message: data.error || 'Suspected duplicate participant requires review'
       };
     }
+
+    if (!ktId) throw new Error('KarateTech did not return a participant ID. Transfer was not confirmed.');
 
     return {
       status: 'SUCCESS',
@@ -347,26 +373,24 @@ export class KarateTechApiClient {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || data.message || `Bulk API Error: HTTP ${res.status}`);
 
-    const results = data.results || [];
+    const results = Array.isArray(data.results) ? data.results : [];
     const failures: Array<{ scms_member_id: string; reason: string }> = [];
-
-    results.forEach((r: any) => {
-      if (!r.success) {
-        failures.push({
-          scms_member_id: r.scms_participant_id,
-          reason: r.error || (r.status === 'SUSPECTED_DUPLICATE' ? 'Suspected duplicate athlete requires review' : 'Batch write error')
-        });
+    const mappings: Record<string, string> = {};
+    let created = 0;
+    let updated = 0;
+    for (const participant of normalizedList) {
+      const matches = results.filter((r: any) => r.scms_participant_id === participant.scms_participant_id);
+      const result = matches.length === 1 ? matches[0] : null;
+      const id = result?.karate_participant_id || result?.karatetech_participant_id;
+      if (!result?.success || !id) {
+        failures.push({ scms_member_id: participant.scms_participant_id, reason: result?.error || 'KarateTech did not confirm this athlete transfer.' });
+      } else {
+        mappings[participant.scms_participant_id] = id;
+        if (result.status === 'CREATED') created++; else updated++;
       }
-    });
+    }
+    return { total: normalizedList.length, created, updated, already_synced: 0, failed: failures.length, failures, mappings };
 
-    return {
-      total: data.total || normalizedList.length,
-      created: data.created || 0,
-      updated: data.updated || 0,
-      already_synced: 0,
-      failed: data.failed || failures.length,
-      failures
-    };
   }
 }
 
@@ -386,13 +410,15 @@ export class KarateTechSyncService {
       missing.push('gender (Male/Female)');
     }
     const dobRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!payload.dob || !dobRegex.test(payload.dob)) {
+    const parsedDob = new Date(`${payload.dob}T00:00:00Z`);
+    if (!payload.dob || !dobRegex.test(payload.dob) || !Number.isFinite(parsedDob.getTime()) || parsedDob.toISOString().slice(0, 10) !== payload.dob || parsedDob > new Date()) {
       missing.push('dob (valid YYYY-MM-DD)');
     }
-    if (payload.weight == null || isNaN(payload.weight) || payload.weight <= 0) {
+    if (payload.weight == null || !Number.isFinite(payload.weight) || payload.weight <= 0) {
       missing.push('weight (> 0 kg)');
     }
-    if (payload.height == null || isNaN(payload.height) || payload.height <= 0) {
+    if (!payload.passport_ic || ['N/A', 'NA'].includes(payload.passport_ic.trim().toUpperCase())) missing.push('passport_ic (real IC/passport)');
+    if (payload.height == null || !Number.isFinite(payload.height) || payload.height <= 0) {
       missing.push('height (> 0 cm)');
     }
 
@@ -421,8 +447,8 @@ export class KarateTechSyncService {
   /**
    * Executes the transaction-safe sync to KarateTech via Secure REST API
    */
-  static async executeSync(rawPayload: any, userId: string) {
-    let supabase: any = await getSupabaseServerClient();
+  static async executeSync(rawPayload: any, userId: string, trackingClient?: any) {
+    let supabase: any = trackingClient || await getSupabaseServerClient();
 
     const payload = toKarateTechPayload(rawPayload);
     const requestId = `SCMS-SYNC-${crypto.randomUUID()}`;
@@ -460,14 +486,10 @@ export class KarateTechSyncService {
               }).eq('scms_member_id', payload.scms_participant_id);
             }
             return { success: false, error: 'CONFLICT_DETECTED', status: 'CONFLICT', conflicts };
-          } else {
-            // Already synced, clean idempotent success
-            return {
-              success: true,
-              karatetechId: existingLink.karatetech_participant_id,
-              status: 'ALREADY_SYNCED'
-            };
           }
+          // The receiver performs idempotent upserts. Always send current measurements
+          // and contact details even if the identity already matches.
+
         }
       } catch {
         // Proceed to API sync call
@@ -561,7 +583,8 @@ export class KarateTechSyncService {
         }, { onConflict: 'scms_member_id' });
 
         if (isTransient) {
-          await supabase.from('sync_jobs').insert({
+          try {
+            await supabase.from('sync_jobs').insert({
             participant_id: payload.scms_participant_id,
             club_id: payload.scms_club_id,
             operation: 'UPSERT',
@@ -569,7 +592,10 @@ export class KarateTechSyncService {
             status: 'PENDING',
             payload,
             error: error.message
-          }).catch(() => {});
+            });
+          } catch {
+            // Preserve the original connection error if retry storage is unavailable.
+          }
         }
 
         await this.logSyncHistory(
@@ -595,13 +621,15 @@ export class KarateTechSyncService {
   static async executeBulkSync(
     clubId: string,
     rawParticipants: any[],
-    userId: string
+    userId: string,
+    trackingClient?: any
   ): Promise<{ success: boolean; data?: BulkSyncResult; error?: string }> {
     try {
       const requestId = `SCMS-BULK-${crypto.randomUUID()}`;
       const participants = rawParticipants.map(p => toKarateTechPayload(p));
+      participants.forEach(p => this.validatePayload(p));
 
-      let supabase: any = await getSupabaseServerClient();
+      let supabase: any = trackingClient || await getSupabaseServerClient();
 
       const payload: BulkSyncPayload = {
         request_id: requestId,
@@ -623,6 +651,7 @@ export class KarateTechSyncService {
             scms_member_id: p.scms_participant_id,
             scms_participant_id: p.scms_participant_id,
             club_id: clubId,
+            ...(isFailed ? {} : { karatetech_participant_id: result.mappings?.[p.scms_participant_id] }),
             sync_status: isFailed ? 'FAILED' : 'SYNCED',
             last_attempted_sync_at: new Date().toISOString(),
             last_successful_sync_at: isFailed ? null : new Date().toISOString(),
@@ -670,7 +699,7 @@ export class KarateTechSyncService {
     if (!supabase) return;
     try {
       await supabase.from('sync_history').insert({
-        scms_club_id: clubId,
+        club_id: clubId,
         scms_participant_id: scmsId === 'BULK' ? null : scmsId,
         karatetech_participant_id: ktId,
         operation,

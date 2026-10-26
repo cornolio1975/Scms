@@ -8,15 +8,11 @@ export async function POST(request: Request) {
 
     const draft = await request.json();
 
-    const ktUrl = process.env.NEXT_PUBLIC_KARATETECH_API_URL;
+    const ktUrl = process.env.KARATETECH_API_URL || process.env.NEXT_PUBLIC_KARATETECH_API_URL;
     const ktKey = process.env.KARATETECH_API_KEY;
 
     if (!ktUrl || !ktKey) {
-      console.warn('KarateTech API not configured. Falling back to simulation.');
-      return NextResponse.json({
-        success: true,
-        acknowledgementId: `KT-ACK-SIMULATED-${Date.now()}`,
-      });
+      return NextResponse.json({ success: false, error: 'KarateTech registration is not configured. Your draft has not been submitted.' }, { status: 503 });
     }
 
     const response = await fetch(`${ktUrl}/api/integration/scms/registration`, {

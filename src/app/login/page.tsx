@@ -1,9 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { ArrowRight, Building2, Check, ChevronRight, Eye, EyeOff, Layers3, Loader2, LockKeyhole, ShieldCheck, Trophy, Users } from 'lucide-react';
+import { createClient } from '@/utils/supabase/client';
+import styles from './login.module.css';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -12,142 +14,86 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const supabase = createClient();
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  async function handleLogin(event: React.FormEvent) {
+    event.preventDefault();
+    if (loading) return;
     setLoading(true);
     setError(null);
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password: password.trim(),
-    });
-
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-    } else {
+    try {
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
+        throw new Error('Sign-in is temporarily unavailable. Please contact your administrator.');
+      }
+      const { data, error } = await createClient().auth.signInWithPassword({ email: email.trim(), password });
+      if (error) throw error;
       if (data?.user?.user_metadata?.temp_password) {
         router.push('/update-password');
         return;
       }
-      
-      // Client-side mock store fallback for mock users
-      try {
-        const { resolveMockRole, mockRoleRoute } = await import('@/lib/mockRole');
-        const mockRole = resolveMockRole(email, data?.user?.user_metadata?.full_name);
-
-        if (mockRole) {
-          window.location.assign(mockRoleRoute(mockRole));
-          return;
-        }
-      } catch (e) {
-        console.error('Mock routing failed', e);
-      }
-
+      // Authorization and destination are resolved on the server.
       router.push('/api/auth/route-dispatch');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to sign in. Please try again.');
+      setLoading(false);
     }
-  };
-
-
+  }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
-      <div className="w-full max-w-md space-y-8 rounded-lg bg-white p-8 shadow-md">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Sign in to SCMS</h2>
+    <main className={styles.page}>
+      <section className={styles.story} aria-labelledby="platform-title">
+        <Link href="/" className={styles.brand} aria-label="SCMS home">
+          <span className={styles.brandMark}><Layers3 size={25} strokeWidth={1.7} /></span>
+          <span>SCMS<span className={styles.brandSub}>BY SP SPORTDATA SOLUTION</span></span>
+        </Link>
+        <a className={styles.mobileSignIn} href="#sign-in-title">Sign in <ArrowRight size={14} /></a>
+        <div className={styles.storyContent}>
+          <p className={styles.eyebrow}><span /> CLUB TO COMPETITION</p>
+          <h1 id="platform-title">Stronger clubs.<br />Seamless tournaments.<br /><span>Every point matters.</span></h1>
+          <p className={styles.intro}>Bring your club, athletes and competition day together with SCMS and KarateTech 3.0.</p>
+          <div className={styles.products}>
+            <article className={styles.product}>
+              <span className={styles.productIcon}><Building2 size={21} /></span>
+              <div><h2>SCMS <span>CLUB MANAGEMENT</span></h2><p>Manage clubs, dojos, member profiles and approvals in one workspace.</p></div>
+            </article>
+            <article className={styles.product}>
+              <span className={styles.productIcon}><Trophy size={21} /></span>
+              <div><h2>KarateTech 3.0 <span>TOURNAMENT MANAGEMENT</span></h2><p>Organize registrations, categories, draws, bouts and tatami operations.</p></div>
+            </article>
+          </div>
+          <div className={styles.competition}>
+            <div className={styles.competitionHeader}><span><span className={styles.statusDot} /> COMPETITION WORKSPACE</span><span>WKF SCORING WORKFLOWS</span></div>
+            <div className={styles.competitionBody}>
+              <div><span className={styles.aka}>AKA</span><span className={styles.ao}>AO</span></div>
+              <p>Kata & Kumite<span>Scoring, bout timing and spectator displays</span></p>
+              <ShieldCheck size={26} aria-hidden="true" />
+            </div>
+          </div>
+          <a className={styles.explore} href="https://karatetech3.spsportdatasolution.org" target="_blank" rel="noopener noreferrer">Explore KarateTech 3.0 <ArrowRight size={16} /><span className="sr-only"> (opens in a new tab)</span></a>
         </div>
-        
-        {error && (
-          <div className="rounded-md bg-red-50 p-4">
-            <div className="text-sm text-red-700">{error}</div>
-          </div>
-        )}
+        <footer className={styles.storyFooter}><span>ONE CONNECTED SPORTS ECOSYSTEM</span><span>Built for clubs. Ready for competition.</span></footer>
+      </section>
 
-        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
-          <div className="space-y-4 rounded-md shadow-sm">
-            <div>
-              <label className="sr-only" htmlFor="email">Email</label>
-              <input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="block w-full rounded-md border border-gray-300 px-3 py-2 placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
-                placeholder="Email address"
-              />
+      <section className={styles.signIn} aria-labelledby="sign-in-title">
+        <div className={styles.topline}><span><LockKeyhole size={14} /> SCMS PORTAL</span><Link href="/register-club">Register your club <ChevronRight size={15} /></Link></div>
+        <div className={styles.formWrap}>
+          <div className={styles.welcomeIcon}><Users size={25} strokeWidth={1.6} /></div>
+          <p className={styles.formEyebrow}>YOUR CLUB. YOUR WORKSPACE.</p>
+          <h2 id="sign-in-title">Welcome back.</h2>
+          <p className={styles.formIntro}>Sign in to manage your club and prepare your athletes for their next competition.</p>
+          {error && <div id="login-error" role="alert" className={styles.error}>{error}</div>}
+          <form onSubmit={handleLogin} className={styles.form} aria-describedby={error ? 'login-error' : undefined} aria-busy={loading}>
+            <div><label htmlFor="email">Email address</label><input id="email" name="email" type="email" autoComplete="username" placeholder="you@yourclub.com" required value={email} onChange={e => setEmail(e.target.value)} disabled={loading} /></div>
+            <div><div className={styles.passwordLabel}><label htmlFor="password">Password</label><Link href="/forgot-password">Forgot password?</Link></div>
+              <div className={styles.passwordInput}><input id="password" name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="Enter your password" required value={password} onChange={e => setPassword(e.target.value)} disabled={loading} /><button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={19} /> : <Eye size={19} />}</button></div>
             </div>
-            <div className="relative">
-              <label className="sr-only" htmlFor="password">Password</label>
-              <input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="block w-full rounded-md border border-gray-300 px-3 py-2 pr-10 placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
-                placeholder="Password"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-500"
-              >
-                {showPassword ? (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                  </svg>
-                ) : (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                )}
-              </button>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="text-sm">
-              <Link href="/forgot-password" className="font-medium text-indigo-600 hover:text-indigo-500">
-                Forgot your password?
-              </Link>
-            </div>
-          </div>
-
-          <div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="group relative flex w-full justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50"
-            >
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </div>
-        </form>
-
-        <div className="mt-6">
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300" />
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="bg-white px-2 text-gray-500">New to SCMS?</span>
-            </div>
-          </div>
-
-          <div className="mt-6 text-center">
-            <Link 
-              href="/register-club" 
-              className="inline-flex w-full items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-[#0284C7] shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#0284C7] focus:ring-offset-2"
-            >
-              Create New Club
-            </Link>
-          </div>
+            <button className={styles.submit} type="submit" disabled={loading}>{loading ? <><Loader2 size={19} className="animate-spin" /> Signing in…</> : <>Sign in to your workspace <ArrowRight size={18} /></>}</button>
+          </form>
+          <div className={styles.accessNote}><ShieldCheck size={17} /><span>Access is based on your assigned club and role.</span></div>
+          <div className={styles.newClub}><div><h3>Starting a new club?</h3><p>Create a workspace for your team.</p></div><Link href="/register-club" aria-label="Register a new club"><ArrowRight size={21} /></Link></div>
+          <div className={styles.formBenefits}><span><Check size={13} /> Club & dojo management</span><span><Check size={13} /> Athlete coordination</span></div>
         </div>
-      </div>
-    </div>
+        <footer className={styles.signInFooter}><span>© {new Date().getFullYear()} SP SportData Solution</span><span>SCMS × KarateTech 3.0</span></footer>
+      </section>
+    </main>
   );
 }
