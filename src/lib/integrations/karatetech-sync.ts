@@ -189,29 +189,48 @@ export function toKarateTechPayload(input: any): KarateTechParticipantPayload {
 
 export class KarateTechApiClient {
   private static getBaseUrl(): string {
-    const raw = process.env.KARATETECH_API_URL || process.env.NEXT_PUBLIC_KARATETECH_API_URL || 'http://localhost:3001';
-    return raw.split(',')[0].trim().replace(/\/$/, '');
+    const raw = process.env.KARATETECH_API_URL?.trim() || process.env.NEXT_PUBLIC_KARATETECH_API_URL?.trim();
+    if (!raw && process.env.NODE_ENV === 'production') {
+      throw new Error('KarateTech connection is not configured. Set KARATETECH_API_URL on the SCMS server to the KarateTech Node.js server URL.');
+    }
+    let url: URL;
+    try {
+      url = new URL(raw || 'http://localhost:3001');
+    } catch {
+      throw new Error('Invalid KARATETECH_API_URL. Use one complete http:// or https:// server URL.');
+    }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+      throw new Error('Invalid KARATETECH_API_URL. Use an http:// or https:// server URL without credentials, query parameters or fragments.');
+    }
+    return url.toString().replace(/\/$/, '');
   }
 
   private static getApiKey(): string {
-    return process.env.KARATETECH_API_KEY || 'local-dev-secret-key-123';
+    const key = process.env.KARATETECH_API_KEY?.trim();
+    if (!key && process.env.NODE_ENV === 'production') {
+      throw new Error('KarateTech authentication is not configured. Set KARATETECH_API_KEY on the SCMS server to the key accepted by KarateTech.');
+    }
+    return key || 'local-dev-secret-key-123';
   }
 
   private static getTimeout(): number {
-    return parseInt(process.env.KARATETECH_API_TIMEOUT_MS || '15000', 10);
+    const timeout = Number(process.env.KARATETECH_API_TIMEOUT_MS || '15000');
+    return Number.isFinite(timeout) && timeout > 0 ? timeout : 15000;
   }
 
   private static async fetchWithTimeout(endpoint: string, options: RequestInit = {}): Promise<Response> {
+    const baseUrl = this.getBaseUrl();
+    const apiKey = this.getApiKey();
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), this.getTimeout());
 
     try {
-      const response = await fetch(`${this.getBaseUrl()}${endpoint}`, {
+      const response = await fetch(`${baseUrl}${endpoint}`, {
         ...options,
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.getApiKey()}`,
+          'Authorization': `Bearer ${apiKey}`,
           ...(options.headers || {}),
         },
       });
@@ -222,7 +241,7 @@ export class KarateTechApiClient {
       if (error.name === 'AbortError') {
         throw new Error('KarateTech API Request Timeout');
       }
-      throw error;
+      throw new Error('KarateTech connection failed (fetch failed). Check that KARATETECH_API_URL points to a running Node.js deployment and that its DNS and HTTPS certificate work.');
     }
   }
 
@@ -237,8 +256,8 @@ export class KarateTechApiClient {
         return data.status === 'healthy' || data.success === true;
       }
       return false;
-    } catch {
-      return false;
+    } catch (error) {
+      throw error;
     }
   }
 
@@ -297,6 +316,10 @@ export class KarateTechApiClient {
     const data = await res.json().catch(() => ({}));
     const ktId = data.karate_participant_id || data.karatetech_participant_id;
 
+    if (res.status === 404 || res.status === 405 || res.headers.get('content-type')?.includes('text/html')) {
+      throw new Error('KarateTech athlete receiver is unavailable. Deploy the /api/integration/scms/participants endpoint on the KarateTech Node.js server; a static website cannot receive athletes.');
+    }
+
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) throw new Error('AUTHENTICATION_FAILED');
       if (res.status === 409 || data.status === 'SUSPECTED_DUPLICATE') {
@@ -319,6 +342,8 @@ export class KarateTechApiClient {
         message: data.error || 'Suspected duplicate participant requires review'
       };
     }
+
+    if (!ktId) throw new Error('KarateTech did not return a participant ID. Transfer was not confirmed.');
 
     return {
       status: 'SUCCESS',
@@ -561,7 +586,8 @@ export class KarateTechSyncService {
         }, { onConflict: 'scms_member_id' });
 
         if (isTransient) {
-          await supabase.from('sync_jobs').insert({
+          try {
+            await supabase.from('sync_jobs').insert({
             participant_id: payload.scms_participant_id,
             club_id: payload.scms_club_id,
             operation: 'UPSERT',
@@ -569,7 +595,10 @@ export class KarateTechSyncService {
             status: 'PENDING',
             payload,
             error: error.message
-          }).catch(() => {});
+            });
+          } catch {
+            // Preserve the original connection error if retry storage is unavailable.
+          }
         }
 
         await this.logSyncHistory(
