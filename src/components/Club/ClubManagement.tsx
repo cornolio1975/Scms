@@ -46,7 +46,7 @@ interface ClubManagementProps {
 }
 
 export default function ClubManagement({ clubId, branchId, initialTab = 'profile' }: ClubManagementProps) {
-  const { activeRole, activeClub, currentUser } = useAuth();
+  const { activeRole, activeClub, activeBranch, currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'profile' | 'branches' | 'officials' | 'onboarding'>(initialTab);
 
   useEffect(() => {
