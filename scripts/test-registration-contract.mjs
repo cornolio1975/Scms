@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import ts from 'typescript';
+const compile = source => ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
+const load = source => import(`data:text/javascript;base64,${Buffer.from(compile(source)).toString('base64')}`);
+const originalFetch=globalThis.fetch;
+const originalEnv={...process.env};
+const helper=await load(await readFile('src/lib/integrations/registration-response.ts','utf8'));
+globalThis.registrationTestHelper=helper;
+const clientSource=(await readFile('src/lib/integrations/karateTech.ts','utf8')).replace("import { readRegistrationJson, confirmedRegistration } from './registration-response';",'const { readRegistrationJson, confirmedRegistration } = globalThis.registrationTestHelper;');
+const {KarateTechIntegrationService:client}=await load(clientSource);
+const draft={clubId:'club-1',tournamentId:'tournament-1',idempotencyKey:'retry-key',participants:[{scmsMemberId:'member-1',targetCategoryId:'category-1',eligibilityPassed:true}]};
+class IntegrationError extends Error { constructor(message,status=400){super(message);this.status=status;} }
+let allowed=true;
+globalThis.registrationTestSource={IntegrationError,syncContext:async()=>{if(!allowed)throw new IntegrationError('Forbidden',403);return{};},sourceMembers:async()=>[{id:'member-1'}]};
+let serverSource=await readFile('src/app/api/integration/karatetech/registration/route.ts','utf8');
+serverSource=serverSource.replace("import { NextResponse } from 'next/server';",'const NextResponse = {json: Response.json.bind(Response)};').replace(/import \{ syncContext, sourceMembers, IntegrationError \} from [^;]+;/,'const {syncContext,sourceMembers,IntegrationError}=globalThis.registrationTestSource;').replace(/import \{ readRegistrationJson, confirmedRegistration \} from [^;]+;/,'const {readRegistrationJson,confirmedRegistration}=globalThis.registrationTestHelper;');
+const {POST}=await load(serverSource);
+const request=body=>new Request('https://scms.test/api/integration/karatetech/registration',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+try {
+  globalThis.fetch=async()=>new Response('<!DOCTYPE html><title>Website</title>',{headers:{'Content-Type':'text/html'}});
+  const html=await client.submitRegistrationDraft(draft);assert.equal(html.success,false);assert.match(html.error,/SCMS registration API returned a web page/);
+  globalThis.fetch=async()=>Response.json({success:true});assert.equal((await client.submitRegistrationDraft(draft)).success,false);
+  globalThis.fetch=async()=>Response.json({success:false,acknowledgementId:'fake'});assert.equal((await client.submitRegistrationDraft(draft)).success,false);
+  globalThis.fetch=async()=>Response.json({success:true,acknowledgementId:'real-ack'});assert.equal((await client.submitRegistrationDraft(draft)).acknowledgementId,'real-ack');
+  globalThis.fetch=async()=>new Response('{broken',{headers:{'Content-Type':'application/json'}});assert.match((await client.submitRegistrationDraft(draft)).error,/invalid JSON/);
+  assert.equal((await client.submitRegistrationDraft({...draft,participants:[]})).success,false);
+  process.env.KARATETECH_API_URL='https://receiver.test/';process.env.KARATETECH_API_KEY='test-only';
+  globalThis.fetch=async()=>new Response('<!doctype html>',{headers:{'Content-Type':'text/html'}});const upstream=await POST(request(draft));assert.equal(upstream.status,502);assert.match((await upstream.json()).error,/KarateTech tournament-registration receiver/);
+  globalThis.fetch=async()=>Response.json({success:true});assert.equal((await POST(request(draft))).status,502);
+  globalThis.fetch=async(url,options)=>{assert.equal(url,'https://receiver.test/api/integration/scms/registration');assert.equal(options.headers['Idempotency-Key'],'retry-key');return Response.json({success:true,acknowledgementId:'confirmed'});};assert.equal((await (await POST(request(draft))).json()).acknowledgementId,'confirmed');
+  assert.equal((await POST(request({...draft,participants:[{scmsMemberId:'other-club'}]}))).status,403);
+  allowed=false;assert.equal((await POST(request(draft))).status,403);allowed=true;
+  globalThis.fetch=async()=>{throw new DOMException('Timeout','TimeoutError')};assert.equal((await POST(request(draft))).status,504);
+  const category = {id:'real-category',name:'Male Kumite +75kg',gender:'Male',min_age:18,max_age:99,min_weight:75.01,max_weight:999,status:'Open'};
+  const athlete = {dob:'2000-01-01',gender:'Male',sportData:{weightKg:76}};
+  assert.equal(client.suggestEligibleCategories(athlete,'2027-01-01').length,0);
+  assert.equal(client.suggestEligibleCategories(athlete,'2027-01-01',[category])[0].id,'real-category');
+  assert.equal(client.suggestEligibleCategories({...athlete,sportData:{weightKg:70}},'2027-01-01',[category]).length,0);
+  assert.equal(client.suggestEligibleCategories({...athlete,dob:''},'2027-01-01',[category]).length,0);
+  console.log('Registration contract and live-category checks passed (16 scenarios).');
+} finally {globalThis.fetch=originalFetch;process.env=originalEnv;delete globalThis.registrationTestSource;delete globalThis.registrationTestHelper;}

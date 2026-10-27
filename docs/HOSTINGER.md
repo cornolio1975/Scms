@@ -97,3 +97,16 @@ are deselected; failed entries remain selected with their reason. No dummy DOB,
 gender, weight, height, or passport is substituted. Only receiver-confirmed writes
 are reported as successful. Receivers must implement the contract described in
 KarateTech's `docs/SCMS_INTEGRATION.md` and use the same shared API key.
+
+### Draft Registration Builder HTML/JSON error
+
+Tournament registration uses `/api/integration/karatetech/registration` on SCMS
+and `/api/integration/scms/registration` on KarateTech. It is separate from
+athlete intake. Deploy both applications' current Node builds and apply
+KarateTech's `20261027120000_scms_registration.sql` migration before retrying.
+SCMS now loads real receiver categories instead of seeded category IDs. Athletes
+must first be synced to the configured tournament/club. The receiver checks
+eligibility and capacity against its own records. A registration is successful
+only when the receiver returns a persisted acknowledgement. HTML responses,
+missing acknowledgement IDs, and timeouts never fabricate success. The form
+keeps the selection open; it does not promise durable draft storage on reload.

@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { createClient } from '@/utils/supabase/client';
 import {
   KarateTechIntegrationService,
   KarateTechTournament,
-  FALLBACK_CATEGORIES,
+  KarateTechCategory,
 } from '@/lib/integrations/karateTech';
 import { TournamentRegistrationDraft, TournamentRegistrationItem, Member } from '@/types';
 import {
@@ -37,6 +37,11 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
   const [selectedAthleteIds, setSelectedAthleteIds] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<Record<string, string>>({});
   const [submissionStatus, setSubmissionStatus] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submissionKey = useRef<string | null>(null);
+  const [liveCategories, setLiveCategories] = useState<KarateTechCategory[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const categoryLoad = useRef(0);
 
   const [clubAthletes, setClubAthletes] = useState<any[]>([]);
   const [drafts, setDrafts] = useState<TournamentRegistrationDraft[]>([]);
@@ -109,50 +114,76 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
     loadData();
   }, [clubId, branchId, supabase]);
 
-  const handleStartDraft = (t: KarateTechTournament) => {
+  const handleStartDraft = async (t: KarateTechTournament) => {
+    submissionKey.current = null;
+    setSubmissionStatus('');
     setSelectedTournament(t);
     setSelectedAthleteIds([]);
     setSelectedCategories({});
     setIsBuilderOpen(true);
+    setLiveCategories([]);
+    setCategoriesLoading(true);
+    const sequence = ++categoryLoad.current;
+    try {
+      const categories = await KarateTechIntegrationService.getTournamentCategories(t.tournamentId);
+      if (sequence === categoryLoad.current) {
+        setLiveCategories(categories);
+        if (!categories.length) setSubmissionStatus('No categories are configured for this tournament.');
+      }
+    } catch (error) {
+      if (sequence === categoryLoad.current) setSubmissionStatus(error instanceof Error ? error.message : 'Unable to load tournament categories.');
+    } finally {
+      if (sequence === categoryLoad.current) setCategoriesLoading(false);
+    }
   };
 
   const handleToggleAthlete = (athleteId: string) => {
+    submissionKey.current = null;
     setSelectedAthleteIds(prev =>
       prev.includes(athleteId) ? prev.filter(id => id !== athleteId) : [...prev, athleteId]
     );
   };
 
   const handleCategorySelect = (athleteId: string, categoryId: string) => {
+    submissionKey.current = null;
     setSelectedCategories(prev => ({ ...prev, [athleteId]: categoryId }));
   };
 
   const handleSubmitDraft = async () => {
-    if (!selectedTournament || !clubId) return;
+    if (!selectedTournament || !clubId || isSubmitting || categoriesLoading || !liveCategories.length || !selectedAthleteIds.length) return;
     setSubmissionStatus('Validating and submitting to KarateTech 3.0...');
 
     const items: TournamentRegistrationItem[] = selectedAthleteIds.map(athId => {
       const athlete = clubAthletes.find(a => a.id === athId)!;
       const eligibleCategories = KarateTechIntegrationService.suggestEligibleCategories(
         athlete as Member,
-        selectedTournament.tournamentDate
+        selectedTournament.tournamentDate,
+        liveCategories
       );
-      const catId = selectedCategories[athId] || (eligibleCategories.length > 0 ? eligibleCategories[0].id : FALLBACK_CATEGORIES[0].id);
-      const cat = FALLBACK_CATEGORIES.find(c => c.id === catId);
+      const catId = selectedCategories[athId] || (eligibleCategories[0]?.id || '');
+      const cat = liveCategories.find(c => c.id === catId);
 
       const val = KarateTechIntegrationService.validateParticipantCategory(
         athlete as Member,
         selectedTournament.tournamentDate,
-        catId
+        catId,
+        liveCategories
       );
 
       return {
         scmsMemberId: athlete.id,
         memberName: athlete.fullName,
-        discipline: 'Kumite',
+        discipline: cat?.name.toLowerCase().includes('kata') ? 'Kata' : 'Kumite',
         targetCategoryId: catId,
         targetCategoryName: cat?.name || 'Category',
-        ageAtTournament: new Date().getFullYear() - 2005,
-        weightKg: athlete.sportData?.weightKg || 60,
+        ageAtTournament: (() => {
+          const date = new Date(selectedTournament.tournamentDate);
+          const birth = new Date(athlete.dob);
+          let age = date.getUTCFullYear() - birth.getUTCFullYear();
+          if (date.getUTCMonth() < birth.getUTCMonth() || (date.getUTCMonth() === birth.getUTCMonth() && date.getUTCDate() < birth.getUTCDate())) age--;
+          return age;
+        })(),
+        weightKg: athlete.sportData?.weightKg ?? 0,
         gender: athlete.gender,
         eligibilityPassed: val.eligible,
         validationError: val.reason,
@@ -160,7 +191,8 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
     });
 
     const draftId = generateImmutableId('TREG');
-    const idempotencyKey = generateIdempotencyKey();
+    const idempotencyKey = submissionKey.current || generateIdempotencyKey();
+    submissionKey.current = idempotencyKey;
 
     const draft: TournamentRegistrationDraft = {
       id: draftId,
@@ -175,7 +207,9 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
       updatedAt: new Date().toISOString(),
     };
 
-    const res = await KarateTechIntegrationService.submitRegistrationDraft(draft, activeRole || 'BRANCH_MANAGER');
+    setIsSubmitting(true);
+    const res = await KarateTechIntegrationService.submitRegistrationDraft(draft);
+    setIsSubmitting(false);
 
     if (res.success) {
       draft.status = 'ACKNOWLEDGED';
@@ -220,8 +254,8 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
             <span>{isRefreshing ? 'Syncing...' : 'Sync Latest'}</span>
           </button>
           <div className="flex items-center space-x-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="text-xs font-bold text-slate-700">KarateTech Live Bridge</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+            <span className="text-xs font-bold text-slate-700">KarateTech tournament discovery</span>
           </div>
         </div>
       </div>
@@ -360,6 +394,7 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
               <button onClick={() => setIsBuilderOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
             </div>
 
+            {categoriesLoading && <p role="status" className="text-sm text-slate-500">Loading tournament categories…</p>}
             {submissionStatus && (
               <div className="p-3 bg-sky-50 border border-sky-200 text-sky-800 rounded-xl text-xs font-bold">
                 {submissionStatus}
@@ -375,21 +410,23 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
                   const isSelected = selectedAthleteIds.includes(ath.id);
                   const eligibleCategories = KarateTechIntegrationService.suggestEligibleCategories(
                     ath as Member,
-                    selectedTournament.tournamentDate
+                    selectedTournament.tournamentDate,
+                    liveCategories
                   );
-                  const selectedCat = selectedCategories[ath.id] || (eligibleCategories.length > 0 ? eligibleCategories[0].id : FALLBACK_CATEGORIES[0].id);
+                  const selectedCat = selectedCategories[ath.id] || (eligibleCategories[0]?.id || '');
 
                   return (
                     <div key={ath.id} className={`p-3 rounded-2xl border text-xs space-y-2 ${isSelected ? 'bg-sky-50/60 border-[#0284C7]' : 'bg-slate-50 border-slate-200'}`}>
                       <div className="flex items-center justify-between">
                         <label className="flex items-center space-x-2.5 cursor-pointer">
-                          <input type="checkbox" checked={isSelected} onChange={() => handleToggleAthlete(ath.id)} className="w-4 h-4 text-[#0284C7] rounded cursor-pointer" />
+                          <input type="checkbox" disabled={isSubmitting} checked={isSelected} onChange={() => handleToggleAthlete(ath.id)} className="w-4 h-4 text-[#0284C7] rounded cursor-pointer" />
                           <span className="font-bold text-slate-900">{ath.fullName}</span>
                         </label>
                       </div>
                       {isSelected && (
                         <div className="pl-6 pt-1">
-                          <select value={selectedCat} onChange={e => handleCategorySelect(ath.id, e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-800">
+                          <select disabled={isSubmitting} value={selectedCat} onChange={e => handleCategorySelect(ath.id, e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-800">
+                            {!eligibleCategories.length && <option value="">No eligible category — check athlete details</option>}
                             {eligibleCategories.map(cat => (
                               <option key={cat.id} value={cat.id}>{cat.name} ({cat.gender})</option>
                             ))}
@@ -403,9 +440,9 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex items-center justify-end">
-              <button onClick={handleSubmitDraft} disabled={selectedAthleteIds.length === 0} className="py-2.5 px-6 rounded-xl font-bold text-sm text-white bg-[#0284C7] hover:bg-[#0369A1] disabled:opacity-50 flex items-center space-x-2">
+              <button onClick={handleSubmitDraft} disabled={selectedAthleteIds.length === 0 || isSubmitting || categoriesLoading || !liveCategories.length} className="py-2.5 px-6 rounded-xl font-bold text-sm text-white bg-[#0284C7] hover:bg-[#0369A1] disabled:opacity-50 flex items-center space-x-2">
                 <Send size={15} />
-                <span>Submit to KarateTech 3.0</span>
+                <span>{isSubmitting ? 'Submitting…' : 'Submit to KarateTech 3.0'}</span>
               </button>
             </div>
           </div>
