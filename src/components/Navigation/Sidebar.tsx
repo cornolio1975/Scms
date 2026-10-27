@@ -386,8 +386,8 @@ export default function Sidebar({
         {!collapsed ? (
           <div className="flex items-center justify-between text-slate-500">
             <span className="flex items-center space-x-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span className="text-[11px] font-medium">KT 3.0 Connected</span>
+              <span className="w-2 h-2 rounded-full bg-slate-400" title="Connection not verified"></span>
+              <span className="text-[11px] font-medium">KarateTech integration</span>
             </span>
             <span className="text-[10px] font-mono bg-white px-1.5 py-0.5 rounded border border-[#BAE6FD] text-slate-600">
               v1.0.0
@@ -395,7 +395,7 @@ export default function Sidebar({
           </div>
         ) : (
           <div className="flex justify-center">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" title="KT 3.0 Connected" />
+            <span className="w-2.5 h-2.5 rounded-full bg-slate-400" title="KarateTech integration — connection not verified" />
           </div>
         )}
       </div>

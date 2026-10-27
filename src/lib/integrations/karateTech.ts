@@ -10,7 +10,7 @@ import {
   KarateTechClubMapping,
   Member,
 } from '@/types';
-import { generateIdempotencyKey } from '../idGenerator';
+import { readRegistrationJson, confirmedRegistration } from './registration-response';
 
 // Target KarateTech 3.0 Endpoint (Local dev server default or configured URL)
 const KARATETECH_API_URL = process.env.NEXT_PUBLIC_KARATETECH_API_URL || 'http://localhost:3000';
@@ -138,7 +138,10 @@ export class KarateTechIntegrationService {
    * 2. CATEGORY DISCOVERY & CACHING
    */
   static async getTournamentCategories(tournamentId: string): Promise<KarateTechCategory[]> {
-    return FALLBACK_CATEGORIES;
+    const response = await fetch(`/api/integration/karatetech/tournaments/${encodeURIComponent(tournamentId)}/categories`, { cache: 'no-store' });
+    const data = await readRegistrationJson(response, 'SCMS');
+    if (!response.ok || data.success !== true || !Array.isArray(data.categories)) throw new Error(typeof data.error === 'string' ? data.error : 'Unable to load real tournament categories.');
+    return data.categories;
   }
 
   /**
@@ -148,16 +151,20 @@ export class KarateTechIntegrationService {
   static validateParticipantCategory(
     member: Member,
     tournamentDateIso: string,
-    targetCategoryId: string
+    targetCategoryId: string,
+    categories: KarateTechCategory[] = []
   ): { eligible: boolean; categoryName?: string; reason?: string } {
-    const category = FALLBACK_CATEGORIES.find(c => c.id === targetCategoryId);
+    const category = categories.find(c => c.id === targetCategoryId);
     if (!category) {
       return { eligible: false, reason: 'Invalid or unknown KarateTech category.' };
     }
 
+    if (category.status?.toLowerCase() !== 'open') return { eligible: false, reason: 'This tournament category is not open for registration.' };
+
     // Calculate age at tournament date
     const tDate = new Date(tournamentDateIso);
     const dob = new Date(member.dob);
+    if (!Number.isFinite(tDate.getTime()) || !member.dob || !Number.isFinite(dob.getTime()) || dob > tDate) return { eligible: false, reason: 'A valid athlete date of birth and tournament date are required.' };
     let age = tDate.getFullYear() - dob.getFullYear();
     const m = tDate.getMonth() - dob.getMonth();
     if (m < 0 || (m === 0 && tDate.getDate() < dob.getDate())) {
@@ -165,6 +172,8 @@ export class KarateTechIntegrationService {
     }
 
     const weight = member.sportData?.weightKg || 0;
+
+    if (!Number.isFinite(weight) || weight <= 0) return { eligible: false, reason: 'The athlete’s actual weight is required.' };
 
     // Check Gender
     if (category.gender !== 'Mixed' && category.gender !== member.gender) {
@@ -185,7 +194,7 @@ export class KarateTechIntegrationService {
     }
 
     // Check Weight (for Kumite categories)
-    if (category.name.toLowerCase().includes('kumite') && category.max_weight < 900) {
+    if (category.name.toLowerCase().includes('kumite')) {
       if (weight < category.min_weight || weight > category.max_weight) {
         return {
           eligible: false,
@@ -201,9 +210,9 @@ export class KarateTechIntegrationService {
   /**
    * 4. SUGGEST ELIGIBLE CATEGORIES
    */
-  static suggestEligibleCategories(member: Member, tournamentDateIso: string): KarateTechCategory[] {
-    return FALLBACK_CATEGORIES.filter(cat => {
-      const res = this.validateParticipantCategory(member, tournamentDateIso, cat.id);
+  static suggestEligibleCategories(member: Member, tournamentDateIso: string, categories: KarateTechCategory[] = []): KarateTechCategory[] {
+    return categories.filter(cat => {
+      const res = this.validateParticipantCategory(member, tournamentDateIso, cat.id, categories);
       return res.eligible;
     });
   }
@@ -213,8 +222,9 @@ export class KarateTechIntegrationService {
    */
   static async submitRegistrationDraft(
     draft: TournamentRegistrationDraft,
-    activeRole?: string
+    _activeRole?: string
   ): Promise<{ success: boolean; acknowledgementId?: string; error?: string }> {
+    if (!draft.participants.length) return { success: false, error: 'Select at least one athlete.' };
     // Check validation of all items
     const invalidItems = draft.participants.filter(p => !p.eligibilityPassed);
     if (invalidItems.length > 0) {
@@ -225,30 +235,21 @@ export class KarateTechIntegrationService {
     }
 
     try {
-      const headers: HeadersInit = { 'Content-Type': 'application/json' };
-      if (activeRole) {
-        headers['X-Test-Role'] = activeRole;
-      }
       const res = await fetch('/api/integration/karatetech/registration', {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(draft),
+        signal: AbortSignal.timeout(20000),
       });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => null);
-        throw new Error(errorData?.error || `Server returned ${res.status}`);
+      const data = await readRegistrationJson(res, 'SCMS');
+      if (!res.ok || !confirmedRegistration(data)) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'The registration was not acknowledged by KarateTech.');
       }
-
-      const data = await res.json();
-      return {
-        success: true,
-        acknowledgementId: data.acknowledgementId || `KT-ACK-${Date.now()}`,
-      };
+      return { success: true, acknowledgementId: data.acknowledgementId };
     } catch (err: any) {
       return {
         success: false,
-        error: `KarateTech 3.0 communication failure: ${err.message || 'Network timeout'}. Draft preserved.`,
+        error: `${err.name === 'TimeoutError' || err.name === 'AbortError' ? 'Registration timed out. No registration has been confirmed.' : err.message || 'Registration connection failed.'} Your selection is unchanged.`,
       };
     }
   }

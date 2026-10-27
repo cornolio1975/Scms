@@ -249,6 +249,14 @@ export class KarateTechApiClient {
   /**
    * Health check hitting canonical KarateTech health endpoint
    */
+  static async getTournamentCategories(tournamentId: string): Promise<any[]> {
+    const response = await this.fetchWithTimeout(`/api/integration/scms/tournaments/${encodeURIComponent(tournamentId)}/categories`, { method: 'GET', cache: 'no-store' });
+    if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('KarateTech category API returned a web page instead of JSON. Deploy its tournament category endpoint.');
+    const data = await response.json();
+    if (!response.ok || data.success !== true || !Array.isArray(data.categories)) throw new Error(typeof data.error === 'string' ? data.error : 'KarateTech tournament categories are unavailable.');
+    return data.categories;
+  }
+
   static async checkHealth(): Promise<boolean> {
     try {
       const res = await this.fetchWithTimeout('/api/integration/scms/health');
