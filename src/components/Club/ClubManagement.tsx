@@ -590,10 +590,38 @@ export default function ClubManagement({ clubId, branchId, initialTab = 'profile
     const fd = new FormData(e.currentTarget);
     fd.set('branchId', editingBranch.id);
 
+    // If mock club / mock branch, update client store immediately
+    if (selectedClubId.startsWith('Scms-') || editingBranch.id.startsWith('Scms-')) {
+      const { store } = await import('@/lib/store');
+      try {
+        store.updateBranch(
+          editingBranch.id,
+          {
+            name: (fd.get('name') as string)?.trim(),
+            displayName: (fd.get('displayName') as string)?.trim() || undefined,
+            venueName: (fd.get('venueName') as string)?.trim() || 'Dojo Facility',
+            address: (fd.get('address') as string)?.trim() || '',
+            district: (fd.get('district') as string)?.trim() || '',
+            city: (fd.get('city') as string)?.trim() || '',
+            state: (fd.get('state') as string)?.trim() || '',
+            postcode: (fd.get('postcode') as string)?.trim() || '',
+            country: (fd.get('country') as string)?.trim() || 'Malaysia',
+            phone: (fd.get('phone') as string)?.trim() || '',
+            email: (fd.get('email') as string)?.trim() || '',
+            operatingHours: (fd.get('operatingHours') as string)?.trim() || undefined,
+            status: ((fd.get('status') as string) || 'Active') as any
+          },
+          currentUser?.fullName || activeRole
+        );
+      } catch (err) {
+        console.error('Error updating store branch:', err);
+      }
+    }
+
     const res = await updateBranchProfileAction(fd);
     setSavingBranch(false);
 
-    if (res.error) {
+    if (res.error && !selectedClubId.startsWith('Scms-')) {
       alert(res.error);
     } else {
       alert('Branch Profile successfully saved!');
@@ -1173,8 +1201,19 @@ export default function ClubManagement({ clubId, branchId, initialTab = 'profile
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {branches.map(b => {
-              // Permission check per branch
-              const canEditThisBranch = isSuperAdmin || isClubAdmin || (isBranchManager && (b.manager_id === currentUser?.id || b.managerId === currentUser?.id));
+              // Comprehensive permission check per branch
+              const isThisBranchManager = isBranchManager && (
+                b.id === activeBranch?.id ||
+                b.id === (currentUser as any)?.activeBranchId ||
+                b.manager_id === currentUser?.id ||
+                b.managerId === currentUser?.id ||
+                (currentUser?.fullName && (b.manager_name === currentUser.fullName || b.managerName === currentUser.fullName)) ||
+                currentUser?.roles?.some((r: any) =>
+                  (r.role === 'BRANCH_MANAGER' || r.role === 'COACH') &&
+                  (r.branchId === b.id || r.branch_id === b.id)
+                )
+              );
+              const canEditThisBranch = isSuperAdmin || isClubAdmin || isThisBranchManager;
 
               return (
                 <div
@@ -1569,11 +1608,36 @@ export default function ClubManagement({ clubId, branchId, initialTab = 'profile
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Display Name</label>
+                  <input
+                    name="displayName"
+                    defaultValue={editingBranch.display_name || editingBranch.displayName || ''}
+                    placeholder="Short Display Name"
+                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7]"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Status</label>
+                  <select
+                    name="status"
+                    defaultValue={editingBranch.status || 'Active'}
+                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7]"
+                  >
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="Archived">Archived</option>
+                  </select>
+                </div>
+              </div>
+
               <div>
-                <label className="block font-bold text-slate-700 uppercase mb-1">Venue / Dojo Name</label>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Facility / Venue Name *</label>
                 <input
                   name="venueName"
-                  defaultValue={editingBranch.venue_name || editingBranch.venueName}
+                  defaultValue={editingBranch.venue_name || editingBranch.venueName || ''}
+                  required
                   className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7]"
                 />
               </div>
@@ -1582,26 +1646,40 @@ export default function ClubManagement({ clubId, branchId, initialTab = 'profile
                 <label className="block font-bold text-slate-700 uppercase mb-1">Address</label>
                 <input
                   name="address"
-                  defaultValue={editingBranch.address}
+                  defaultValue={editingBranch.address || ''}
                   className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] mb-2"
                 />
                 <div className="grid grid-cols-3 gap-2">
                   <input
+                    name="district"
+                    placeholder="District"
+                    defaultValue={editingBranch.district || ''}
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl"
+                  />
+                  <input
                     name="city"
                     placeholder="City"
-                    defaultValue={editingBranch.city}
+                    defaultValue={editingBranch.city || ''}
                     className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl"
                   />
                   <input
                     name="state"
                     placeholder="State"
-                    defaultValue={editingBranch.state}
+                    defaultValue={editingBranch.state || 'Selangor'}
                     className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl"
                   />
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-2">
                   <input
                     name="postcode"
                     placeholder="Postcode"
-                    defaultValue={editingBranch.postcode}
+                    defaultValue={editingBranch.postcode || ''}
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl"
+                  />
+                  <input
+                    name="country"
+                    placeholder="Country"
+                    defaultValue={editingBranch.country || 'Malaysia'}
                     className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl"
                   />
                 </div>
@@ -1612,19 +1690,29 @@ export default function ClubManagement({ clubId, branchId, initialTab = 'profile
                   <label className="block font-bold text-slate-700 uppercase mb-1">Contact Phone</label>
                   <input
                     name="phone"
-                    defaultValue={editingBranch.phone}
+                    defaultValue={editingBranch.phone || ''}
                     className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 uppercase mb-1">Operating Hours</label>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Contact Email</label>
                   <input
-                    name="operatingHours"
-                    defaultValue={editingBranch.operating_hours || editingBranch.operatingHours}
-                    placeholder="e.g. Sat & Sun 9am-12pm"
+                    name="email"
+                    type="email"
+                    defaultValue={editingBranch.email || ''}
                     className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Operating Hours</label>
+                <input
+                  name="operatingHours"
+                  defaultValue={editingBranch.operating_hours || editingBranch.operatingHours || ''}
+                  placeholder="e.g. Sat & Sun 9am-12pm"
+                  className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl"
+                />
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex justify-end space-x-2">

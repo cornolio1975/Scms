@@ -28,6 +28,8 @@ import {
   Sparkles,
   Award,
   RefreshCw,
+  GitBranch,
+  Edit2,
 } from 'lucide-react';
 
 interface DashboardOverviewProps {
@@ -109,7 +111,7 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
 
         {/* Quick Shortcut Buttons */}
         <div className="flex flex-wrap gap-2">
-          {isSuperAdmin ? (
+          {isSuperAdmin && (
             <button
               onClick={() => onSelectModule('approvals')}
               className="px-4 py-2 rounded-xl bg-white text-[#0284C7] font-bold text-xs hover:bg-sky-50 shadow-xs transition-colors flex items-center space-x-1.5 touch-target"
@@ -117,10 +119,32 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
               <ShieldCheck size={14} />
               <span>Pending Approvals ({pendingApprovals.length})</span>
             </button>
-          ) : (
+          )}
+
+          {activeRole === 'BRANCH_MANAGER' && (
+            <button
+              onClick={() => onSelectModule('branch-profile')}
+              className="px-4 py-2 rounded-xl bg-white text-[#0284C7] font-bold text-xs hover:bg-sky-50 shadow-xs transition-colors flex items-center space-x-1.5 touch-target"
+            >
+              <Edit2 size={14} />
+              <span>Edit Branch Profile</span>
+            </button>
+          )}
+
+          {['CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole) && (
+            <button
+              onClick={() => onSelectModule('branches')}
+              className="px-4 py-2 rounded-xl bg-white text-[#0284C7] font-bold text-xs hover:bg-sky-50 shadow-xs transition-colors flex items-center space-x-1.5 touch-target"
+            >
+              <GitBranch size={14} />
+              <span>Manage Branches ({branches.length})</span>
+            </button>
+          )}
+
+          {!isSuperAdmin && (
             <button
               onClick={() => onSelectModule('take-attendance')}
-              className="px-4 py-2 rounded-xl bg-white text-[#0284C7] font-bold text-xs hover:bg-sky-50 shadow-xs transition-colors flex items-center space-x-1.5 touch-target"
+              className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs shadow-xs transition-colors flex items-center space-x-1.5 touch-target"
             >
               <CalendarCheck2 size={14} />
               <span>Take Attendance</span>

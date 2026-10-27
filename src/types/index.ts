@@ -104,6 +104,8 @@ export interface ClubBranch {
   id: string; // e.g. "Scms-CLUB-000001-B001"
   clubId: string; // FK to Club
   name: string;
+  displayName?: string;
+  district?: string;
   address: string;
   city: string;
   state: string;

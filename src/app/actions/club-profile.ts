@@ -179,8 +179,10 @@ export async function updateBranchProfileAction(formData: FormData) {
 
   const branchId = formData.get('branchId') as string;
   const name = (formData.get('name') as string)?.trim();
+  const displayName = (formData.get('displayName') as string)?.trim() || null;
   const venueName = (formData.get('venueName') as string)?.trim() || 'Dojo Facility';
   const address = (formData.get('address') as string)?.trim() || null;
+  const district = (formData.get('district') as string)?.trim() || null;
   const city = (formData.get('city') as string)?.trim() || null;
   const state = (formData.get('state') as string)?.trim() || null;
   const postcode = (formData.get('postcode') as string)?.trim() || null;
@@ -203,8 +205,10 @@ export async function updateBranchProfileAction(formData: FormData) {
         branchId,
         {
           name,
+          displayName: displayName || undefined,
           venueName,
           address: address || '',
+          district: district || '',
           city: city || '',
           state: state || '',
           postcode: postcode || '',
@@ -250,7 +254,7 @@ export async function updateBranchProfileAction(formData: FormData) {
     (r: any) => (r.role === 'CLUB_ADMIN' || r.role === 'CLUB_CO_ADMIN') && r.club_id === existingBranch.club_id
   );
   const isBranchManagerForThis = userRoles?.some(
-    (r: any) => r.role === 'BRANCH_MANAGER' && (r.branch_id === branchId || existingBranch.manager_id === user.id)
+    (r: any) => (r.role === 'BRANCH_MANAGER' || r.role === 'COACH') && (r.branch_id === branchId || existingBranch.manager_id === user.id)
   );
 
   if (!isSuperAdmin && !isClubAdminForThis && !isBranchManagerForThis) {
@@ -260,8 +264,10 @@ export async function updateBranchProfileAction(formData: FormData) {
   // Safety invariant: NEVER overwrite club_id
   const branchUpdates = {
     name,
+    display_name: displayName,
     venue_name: venueName,
     address,
+    district,
     city,
     state,
     postcode,

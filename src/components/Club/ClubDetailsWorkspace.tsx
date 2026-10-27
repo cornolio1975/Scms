@@ -15,7 +15,7 @@ import {
   assignClubAdminAction,
   assignBranchManagerAction
 } from '@/app/actions/multi-club';
-import { updateClubProfileAction } from '@/app/actions/club-profile';
+import { updateClubProfileAction, updateBranchProfileAction } from '@/app/actions/club-profile';
 import { createBranchAndAssignManager } from '@/app/actions/branches';
 import { validateDisplayName } from '@/lib/validation/club';
 import { testKarateTechConnection } from '@/app/actions/karatetech';
@@ -69,6 +69,8 @@ export default function ClubDetailsWorkspace({
 
   // Modals
   const [isAddBranchOpen, setIsAddBranchOpen] = useState(false);
+  const [editingBranch, setEditingBranch] = useState<any | null>(null);
+  const [savingBranch, setSavingBranch] = useState(false);
   const [isAssignAdminOpen, setIsAssignAdminOpen] = useState(false);
   const [adminSearchTerm, setAdminSearchTerm] = useState('');
   const [assigningAdmin, setAssigningAdmin] = useState(false);
@@ -299,18 +301,93 @@ export default function ClubDetailsWorkspace({
 
   const handleCreateBranch = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setSaving(true);
+    setSavingBranch(true);
     const fd = new FormData(e.currentTarget);
     fd.set('clubId', clubId);
 
+    if (clubId.startsWith('Scms-')) {
+      const { store } = await import('@/lib/store');
+      store.addBranch(
+        clubId,
+        {
+          name: (fd.get('name') as string)?.trim(),
+          displayName: (fd.get('displayName') as string)?.trim() || undefined,
+          venueName: (fd.get('venueName') as string)?.trim() || 'Dojo Facility',
+          address: (fd.get('address') as string)?.trim() || '',
+          district: (fd.get('district') as string)?.trim() || '',
+          city: (fd.get('city') as string)?.trim() || '',
+          state: (fd.get('state') as string)?.trim() || 'Selangor',
+          postcode: (fd.get('postcode') as string)?.trim() || '',
+          phone: (fd.get('phone') as string)?.trim() || '',
+          email: (fd.get('email') as string)?.trim() || '',
+          operatingHours: (fd.get('operatingHours') as string)?.trim() || ''
+        },
+        currentUser?.fullName || 'SuperAdmin'
+      );
+      setSavingBranch(false);
+      setIsAddBranchOpen(false);
+      setFeedback({ type: 'success', message: `Branch "${fd.get('name')}" successfully established!` });
+      await loadDetails(true);
+      return;
+    }
+
     const res = await createBranchAndAssignManager(fd);
-    setSaving(false);
+    setSavingBranch(false);
     if (res.error) {
       alert(res.error);
     } else {
-      alert('Branch successfully added!');
       setIsAddBranchOpen(false);
-      loadDetails();
+      setFeedback({ type: 'success', message: 'Branch successfully established!' });
+      await loadDetails(true);
+    }
+  };
+
+  const handleUpdateBranchProfile = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingBranch) return;
+
+    setSavingBranch(true);
+    const fd = new FormData(e.currentTarget);
+    fd.set('branchId', editingBranch.id);
+
+    // 1. In-memory / client-side update if mock club/branch
+    if (clubId.startsWith('Scms-') || editingBranch.id.startsWith('Scms-')) {
+      const { store } = await import('@/lib/store');
+      try {
+        store.updateBranch(
+          editingBranch.id,
+          {
+            name: (fd.get('name') as string)?.trim(),
+            displayName: (fd.get('displayName') as string)?.trim() || undefined,
+            venueName: (fd.get('venueName') as string)?.trim() || 'Dojo Facility',
+            address: (fd.get('address') as string)?.trim() || '',
+            district: (fd.get('district') as string)?.trim() || '',
+            city: (fd.get('city') as string)?.trim() || '',
+            state: (fd.get('state') as string)?.trim() || '',
+            postcode: (fd.get('postcode') as string)?.trim() || '',
+            country: (fd.get('country') as string)?.trim() || 'Malaysia',
+            phone: (fd.get('phone') as string)?.trim() || '',
+            email: (fd.get('email') as string)?.trim() || '',
+            operatingHours: (fd.get('operatingHours') as string)?.trim() || undefined,
+            status: ((fd.get('status') as string) || 'Active') as any
+          },
+          currentUser?.fullName || 'SuperAdmin'
+        );
+      } catch (err) {
+        console.error('Client store branch update error:', err);
+      }
+    }
+
+    // 2. Call server action
+    const res = await updateBranchProfileAction(fd);
+    setSavingBranch(false);
+
+    if (res.error && !clubId.startsWith('Scms-')) {
+      alert(res.error);
+    } else {
+      setFeedback({ type: 'success', message: `Branch "${fd.get('name')}" changes successfully saved!` });
+      setEditingBranch(null);
+      await loadDetails(true);
     }
   };
 
@@ -773,17 +850,27 @@ export default function ClubDetailsWorkspace({
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAssignBranchModal({ isOpen: true, branch: b });
-                            setBranchManagerSearchTerm('');
-                          }}
-                          className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-sky-50 text-[#0284C7] hover:bg-sky-100 font-bold text-xs transition-colors cursor-pointer"
-                        >
-                          <UserCheck size={13} />
-                          <span>{b.manager_name || b.managerName ? 'Change Manager' : 'Assign Manager'}</span>
-                        </button>
+                        <div className="flex items-center justify-end space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditingBranch(b)}
+                            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                          >
+                            <Edit2 size={13} />
+                            <span>Edit Branch</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAssignBranchModal({ isOpen: true, branch: b });
+                              setBranchManagerSearchTerm('');
+                            }}
+                            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-sky-50 text-[#0284C7] hover:bg-sky-100 font-bold text-xs transition-colors cursor-pointer"
+                          >
+                            <UserCheck size={13} />
+                            <span>{b.manager_name || b.managerName ? 'Change Manager' : 'Assign Manager'}</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1513,6 +1600,307 @@ export default function ClubDetailsWorkspace({
                 {saving ? 'Rejecting...' : 'Confirm Rejection'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDIT BRANCH / DOJO PROFILE */}
+      {editingBranch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl border border-slate-200 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <div>
+                <div className="flex items-center space-x-2 text-[#0284C7] text-xs font-bold uppercase tracking-wider">
+                  <GitBranch size={14} />
+                  <span>Branch Governance & Facility</span>
+                </div>
+                <h3 className="font-black text-xl text-slate-900 tracking-tight mt-0.5">
+                  Edit Branch Profile
+                </h3>
+                <p className="text-xs text-slate-500 font-mono">ID: {editingBranch.id}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingBranch(null)}
+                className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateBranchProfile} className="space-y-4 text-xs">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <span className="text-slate-500 block">Parent Club:</span>
+                <span className="font-bold text-slate-900">{club?.name} ({club?.display_name || club?.displayName})</span>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Branch Name *</label>
+                <input
+                  name="name"
+                  defaultValue={editingBranch.name}
+                  required
+                  placeholder="e.g. Dojo Saujana Puchong (HQ)"
+                  className="w-full px-3.5 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Display Name</label>
+                  <input
+                    name="displayName"
+                    defaultValue={editingBranch.display_name || editingBranch.displayName || ''}
+                    placeholder="Short Display Name"
+                    className="w-full px-3.5 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Status</label>
+                  <select
+                    name="status"
+                    defaultValue={editingBranch.status || 'Active'}
+                    className="w-full px-3.5 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  >
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="Archived">Archived</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Facility / Venue Name *</label>
+                <input
+                  name="venueName"
+                  defaultValue={editingBranch.venue_name || editingBranch.venueName || ''}
+                  required
+                  placeholder="e.g. Honbu Dojo Tatami Arena"
+                  className="w-full px-3.5 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Address</label>
+                <input
+                  name="address"
+                  defaultValue={editingBranch.address || ''}
+                  placeholder="Street Address"
+                  className="w-full px-3.5 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none mb-2"
+                />
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    name="district"
+                    placeholder="District (e.g. Petaling)"
+                    defaultValue={editingBranch.district || ''}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  />
+                  <input
+                    name="city"
+                    placeholder="City"
+                    defaultValue={editingBranch.city || ''}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  />
+                  <input
+                    name="state"
+                    placeholder="State"
+                    defaultValue={editingBranch.state || 'Selangor'}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <input
+                    name="postcode"
+                    placeholder="Postcode"
+                    defaultValue={editingBranch.postcode || ''}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  />
+                  <input
+                    name="country"
+                    placeholder="Country"
+                    defaultValue={editingBranch.country || 'Malaysia'}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Contact Phone</label>
+                  <input
+                    name="phone"
+                    defaultValue={editingBranch.phone || ''}
+                    placeholder="+6012-3456789"
+                    className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Contact Email</label>
+                  <input
+                    name="email"
+                    type="email"
+                    defaultValue={editingBranch.email || ''}
+                    placeholder="branch@dojo.org"
+                    className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Operating Hours</label>
+                <input
+                  name="operatingHours"
+                  defaultValue={editingBranch.operating_hours || editingBranch.operatingHours || ''}
+                  placeholder="e.g. Mon-Fri: 17:00-22:00, Sat: 08:00-13:00"
+                  className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingBranch(null)}
+                  className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingBranch}
+                  className="px-5 py-2 bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold text-xs rounded-xl shadow-xs flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {savingBranch && <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent" />}
+                  <span>{savingBranch ? 'Saving Changes...' : 'Save Branch Changes'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ESTABLISH NEW BRANCH / DOJO */}
+      {isAddBranchOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl border border-slate-200 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <div>
+                <div className="flex items-center space-x-2 text-[#0284C7] text-xs font-bold uppercase tracking-wider">
+                  <Plus size={14} />
+                  <span>New Dojo Establishment</span>
+                </div>
+                <h3 className="font-black text-xl text-slate-900 tracking-tight mt-0.5">
+                  Establish New Branch / Dojo
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Register a new physical training center under <strong>{club?.name}</strong>.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddBranchOpen(false)}
+                className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateBranch} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Branch Name *</label>
+                <input
+                  name="name"
+                  required
+                  placeholder="e.g. Dojo Shah Alam West"
+                  className="w-full px-3.5 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Display Name</label>
+                <input
+                  name="displayName"
+                  placeholder="e.g. Senshi Shah Alam"
+                  className="w-full px-3.5 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Facility / Venue Name *</label>
+                <input
+                  name="venueName"
+                  required
+                  placeholder="e.g. Shah Alam Community Tatami Hall"
+                  className="w-full px-3.5 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Address</label>
+                <input
+                  name="address"
+                  placeholder="Street Address"
+                  className="w-full px-3.5 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none mb-2"
+                />
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    name="district"
+                    placeholder="District"
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  />
+                  <input
+                    name="city"
+                    required
+                    placeholder="City *"
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  />
+                  <input
+                    name="state"
+                    defaultValue="Selangor"
+                    placeholder="State"
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <input
+                    name="postcode"
+                    placeholder="Postcode"
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  />
+                  <input
+                    name="phone"
+                    placeholder="Phone"
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Operating Hours</label>
+                <input
+                  name="operatingHours"
+                  placeholder="e.g. Sat & Sun 09:00 - 12:00"
+                  className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#0284C7] focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddBranchOpen(false)}
+                  className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingBranch}
+                  className="px-5 py-2 bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold text-xs rounded-xl shadow-xs flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {savingBranch && <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent" />}
+                  <span>{savingBranch ? 'Creating...' : 'Establish Branch'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
