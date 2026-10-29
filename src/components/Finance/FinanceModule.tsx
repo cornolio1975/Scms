@@ -12,7 +12,7 @@ import { Invoice, PaymentReceipt, InvoiceStatus } from '@/types';
 import {
   CreditCard,
   Plus,
-  Receipt,
+  FileText as Receipt,
   CheckCircle2,
   Clock,
   Search,
