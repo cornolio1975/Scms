@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { athleteDiscipline, disciplineFlags, nonActiveMessage, type AthleteDiscipline } from './athlete-discipline';
 
 async function getSupabaseServerClient() {
   try {
@@ -14,6 +15,9 @@ async function getSupabaseServerClient() {
 // -----------------------------------------------------------------------------
 
 export interface KarateTechParticipantPayload {
+  discipline?: AthleteDiscipline;
+  isKumite?: boolean;
+  isKata?: boolean;
   scms_participant_id: string;
   full_name: string;
   gender: 'Male' | 'Female';
@@ -159,6 +163,7 @@ export function toKarateTechPayload(input: any): KarateTechParticipantPayload {
   const allowSimilarOverride = Boolean(input.allow_similar_override || input.allowSimilarOverride);
 
   return {
+    ...disciplineFlags(athleteDiscipline(input)),
     scms_participant_id: scmsId,
     full_name: fullName,
     gender,
@@ -411,6 +416,7 @@ export class KarateTechSyncService {
    * Validates the outgoing payload structure
    */
   static validatePayload(payload: KarateTechParticipantPayload) {
+    if (athleteDiscipline(payload) === 'Non-Active') throw new Error(nonActiveMessage([payload.full_name || 'Unnamed athlete']));
     const missing: string[] = [];
     if (!payload.scms_participant_id) missing.push('scms_participant_id');
     if (!payload.full_name || payload.full_name.trim().length === 0) missing.push('full_name');

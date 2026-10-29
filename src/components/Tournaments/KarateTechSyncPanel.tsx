@@ -1,9 +1,10 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { athleteDiscipline, nonActiveMessage } from '@/lib/integrations/athlete-discipline';
 import { Activity, RefreshCw, Send, ShieldCheck, Users } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
-type Athlete = { id: string; full_name: string; gender: string; dob: string; passport_ic: string; weight: string | number; height: string | number };
+type Athlete = { sportData?: any; sport_data?: any; discipline?: string; isKumite?: boolean; isKata?: boolean; id: string; full_name: string; gender: string; dob: string; passport_ic: string; weight: string | number; height: string | number };
 type Outcome = { id: string; name: string; success: boolean; message: string };
 
 export default function KarateTechSyncPanel() {
@@ -42,6 +43,8 @@ export default function KarateTechSyncPanel() {
   }
   async function send() {
     if (!activeClub || sending) return;
+    const inactive = members.filter(m => selected.includes(m.id) && athleteDiscipline(m) === 'Non-Active');
+    if (inactive.length) { const message = nonActiveMessage(inactive.map(m => m.full_name)); setError(message); window.alert(message); return; }
     setSending(true); setError(''); setOutcomes([]);
     const results: Outcome[] = [];
     try {
@@ -49,6 +52,8 @@ export default function KarateTechSyncPanel() {
         try {
           const res = await fetch('/api/integration/karatetech/participants', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clubId: activeClub.id, memberId: member.id, details: { ...member, weight: Number(member.weight), height: Number(member.height) } }) });
           const result = await res.json();
+          const message = result.error || result.message;
+          if (typeof message === 'string' && message.startsWith('Non-active athlete:')) window.alert(message);
           results.push({ id: member.id, name: member.full_name, success: res.ok && result.success, message: result.success ? 'Transfer confirmed by KarateTech.' : result.error || result.message || 'Transfer failed.' });
         } catch { results.push({ id: member.id, name: member.full_name, success: false, message: 'Connection interrupted. Retry when the receiver is available.' }); }
         setOutcomes([...results]);

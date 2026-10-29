@@ -1,4 +1,5 @@
 'use client';
+import { athleteDiscipline, nonActiveMessage } from '@/lib/integrations/athlete-discipline';
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
@@ -89,6 +90,11 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
   };
 
   const handleToggleAthlete = (athleteId: string) => {
+    const athlete = clubAthletes.find(a => a.id === athleteId);
+    if (!selectedAthleteIds.includes(athleteId) && athlete && athleteDiscipline(athlete) === 'Non-Active') {
+      window.alert(nonActiveMessage([athlete.fullName || athlete.full_name || 'Unnamed athlete']));
+      return;
+    }
     setSelectedAthleteIds(prev => prev.includes(athleteId) ? prev.filter(id => id !== athleteId) : [...prev, athleteId]);
   };
 
@@ -109,10 +115,11 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
           participants: selectedAthleteIds.map(id => {
             const athlete = store.getMemberById(id);
             if (!athlete || athlete.clubId !== clubId) throw new Error('A saved athlete is no longer in this club. Reopen the athlete list.');
+            if (athleteDiscipline(athlete) === 'Non-Active') throw new Error(nonActiveMessage([athlete.fullName]));
             return {
               id: athlete.id, clubId, fullName: athlete.fullName, gender: athlete.gender, dob: athlete.dob,
               icPassport: athlete.icPassport, email: athlete.email, phone: athlete.phone,
-              sportData: { weightKg: athlete.sportData?.weightKg, heightCm: athlete.sportData?.heightCm },
+              sportData: athlete.sportData,
               branchId: athlete.branchId, nationality: athlete.nationality,
               emergencyContactName: athlete.emergencyContactName,
               emergencyContactPhone: athlete.emergencyContactPhone,
@@ -145,7 +152,9 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
       setSelectedAthleteIds([]);
       setSubmissionStatus(`Success: ${data.total} athlete profile(s) received by KarateTech. Assign tournament categories in KarateTech.`);
     } catch (error) {
-      setSubmissionStatus(error instanceof Error ? error.message : 'Transfer failed. Your selection is unchanged.');
+      const message = error instanceof Error ? error.message : 'Transfer failed. Your selection is unchanged.';
+      setSubmissionStatus(message);
+      if (message.startsWith('Non-active athlete:')) window.alert(message);
     } finally {
       setIsSubmitting(false);
     }

@@ -10,7 +10,7 @@ export async function GET(request: Request) {
   try {
     const context = await syncContext(new URL(request.url).searchParams.get('clubId') || '');
     const members = await sourceMembers(context);
-    return NextResponse.json({ success: true, members: members.map(m => ({ id: m.id, full_name: m.full_name, gender: m.gender || '', dob: m.dob || m.date_of_birth || '', passport_ic: m.passport_ic || '', weight: m.weight || '', height: m.height || '' })) });
+    return NextResponse.json({ success: true, members: members.map(m => ({ id: m.id, full_name: m.full_name, gender: m.gender || '', dob: m.dob || m.date_of_birth || '', passport_ic: m.passport_ic || '', weight: m.weight || '', height: m.height || '', sport_data: m.sport_data, sportData: m.sportData, discipline: m.discipline, isKumite: m.isKumite, isKata: m.isKata })) });
   } catch (error) { return failure(error); }
 }
 
