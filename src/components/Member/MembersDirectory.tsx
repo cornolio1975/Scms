@@ -792,7 +792,7 @@ export default function MembersDirectory({
         isAthlete: selectedRoles.includes('ATHLETE'),
         isVolunteer: selectedRoles.includes('VOLUNTEER'),
         gender: (formData.get('gender') as any) || 'Male',
-        dob: (formData.get('dob') as string) || '2000-01-01',
+        dob: (formData.get('dob') as string) || '',
         nationality: (formData.get('nationality') as string) || 'Malaysian',
         medicalNotes: (formData.get('medicalConditions') as string) || undefined,
         assignedCoachName,
@@ -909,7 +909,7 @@ export default function MembersDirectory({
     const finalRoles = validRoles.length > 0 ? validRoles : ['MEMBER'];
 
     const gender = formData.get('gender') as any;
-    const dob = formData.get('dob') as string;
+    const dob = (formData.get('dob') as string) || editingMember.dob || editingMember.date_of_birth || '';
     const nationality = formData.get('nationality') as string;
     const medicalNotes = formData.get('medicalConditions') as string;
     const weight = formData.get('weight') ? parseFloat(formData.get('weight') as string) : undefined;
@@ -2137,11 +2137,13 @@ export default function MembersDirectory({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Date of Birth</label>
+                  <label htmlFor="add-member-dob" className="block text-xs font-bold text-slate-700 uppercase mb-1">Date of Birth (required for athletes)</label>
                   <input
                     type="date"
                     name="dob"
-                    defaultValue="2004-09-22"
+                    id="add-member-dob"
+                    required={selectedNewRoles.includes('ATHLETE')}
+                    max={new Date().toLocaleDateString('en-CA')}
                     className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:border-[#0284C7] focus:ring-[#0284C7]"
                   />
                 </div>
@@ -2494,6 +2496,20 @@ export default function MembersDirectory({
                 </div>
               </div>
 
+              <div>
+                <label htmlFor="edit-member-dob" className="block text-xs font-bold text-slate-700 uppercase mb-1">Date of Birth (required for athletes)</label>
+                <input
+                  id="edit-member-dob"
+                  type="date"
+                  name="dob"
+                  required={editRoles.includes('ATHLETE')}
+                  defaultValue={(editingMember.dob || editingMember.date_of_birth || '').slice(0, 10)}
+                  max={new Date().toLocaleDateString('en-CA')}
+                  className="w-full min-h-11 px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:border-[#0284C7]"
+                />
+                <p className="mt-1 text-xs text-slate-500">Enter the athlete's actual date of birth before sending to KarateTech.</p>
+              </div>
+
               {/* 2. Coach & Dojo Affiliation Section */}
               <div className="p-4 bg-sky-50/60 rounded-2xl border border-sky-100 space-y-3">
                 <div className="flex items-center justify-between">
@@ -2710,6 +2726,8 @@ export default function MembersDirectory({
                         type="number"
                         step="0.1"
                         name="weight"
+                        min="0.1"
+                        max="999"
                         defaultValue={editingMember.sportData?.weightKg || ''}
                         placeholder="e.g. 64.5"
                         className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:border-[#0284C7]"
@@ -2721,6 +2739,9 @@ export default function MembersDirectory({
                         type="number"
                         step="0.1"
                         name="height"
+                        min="0.1"
+                        max="999"
+                        required={editRoles.includes('ATHLETE')}
                         defaultValue={editingMember.sportData?.heightCm || ''}
                         placeholder="e.g. 172"
                         className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:border-[#0284C7]"
