@@ -44,6 +44,15 @@ export interface User {
   fullName: string;
   phone?: string;
   avatarUrl?: string;
+  icPassport?: string;
+  residentialAddress?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  preferredNadiCentre?: string;
+  onboardingCompleted?: boolean;
+  preferredLanguage?: 'en' | 'ms';
+  photoVisibility?: 'PUBLIC' | 'CLUB_ONLY' | 'ADMIN_ONLY' | 'PRIVATE';
+  otherInfo?: string;
   roles: UserRoleAssignment[];
   activeRole: SystemRole;
   activeClubId?: string;

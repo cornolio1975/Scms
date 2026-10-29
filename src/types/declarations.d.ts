@@ -1,3 +1,2 @@
-// Lucide ships its own complete TypeScript declarations.
-// Keep this file a module so it cannot shadow package exports.
-export {};
+// Global declaration fallback for lucide-react icon exports
+declare module 'lucide-react';

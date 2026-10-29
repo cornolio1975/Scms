@@ -2,13 +2,14 @@
 
 /**
  * Scms Authentication & Session Context
- * Enforces RBAC (14 Roles), Multi-Tenant Isolation, Multi-Branch Filtering, and Multi-Role Switching
+ * Enforces RBAC (14 Roles), Multi-Tenant Isolation, Multi-Branch Filtering, Multi-Role Switching,
+ * and User Profile Onboarding Management.
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { usePathname } from 'next/navigation';
 import { User, SystemRole, Club, ClubBranch } from '@/types';
-import { store, INITIAL_USERS } from '@/lib/store';
+import { store } from '@/lib/store';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -17,6 +18,7 @@ interface AuthContextType {
   activeBranch: ClubBranch | null;
   authorizedClubs: Club[];
   authorizedBranches: ClubBranch[];
+  isLoading: boolean;
   login: (email: string, password?: string) => Promise<boolean>;
   logout: () => void;
   switchRole: (role: SystemRole, clubId?: string, branchId?: string) => void;
@@ -25,7 +27,8 @@ interface AuthContextType {
   hasRole: (roles: SystemRole[]) => boolean;
   canAccessClub: (clubId: string) => boolean;
   canAccessBranch: (branchId: string) => boolean;
-  updateProfile: (fullName: string, phone?: string) => Promise<boolean>;
+  updateProfile: (data: Partial<User> | string, phone?: string) => Promise<boolean>;
+  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -44,9 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Compute all available clubs merging DB clubs with store clubs
   const allKnownClubs = React.useMemo(() => {
     const map = new Map<string, Club>();
-    // First store mock clubs
     store.getClubs().forEach(c => map.set(c.id, c));
-    // Then db clubs override or add
     dbClubs.forEach(c => map.set(c.id, c));
     return Array.from(map.values());
   }, [dbClubs]);
@@ -65,22 +66,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ? allKnownBranches.find(b => b.id === activeBranchId) || null
     : null;
 
-  useEffect(() => {
-    let subscription: any;
-    let disposed = false;
+  const loadSession = useCallback(async (userObj?: any) => {
+    try {
+      const { createClient } = await import('@/utils/supabase/client');
+      const supabase = createClient();
 
-    async function loadSession(userObj?: any) {
-      try {
-        const { createClient } = await import('@/utils/supabase/client');
-        const supabase = createClient();
+      // Protected fetch with 3.5s timeout so network stalls never cause infinite loading
+      const timeoutPromise = new Promise<{ timeout: true }>((resolve) =>
+        setTimeout(() => resolve({ timeout: true }), 3500)
+      );
 
-        // Concurrently fetch clubs and branches from Supabase
-        const [clubsRes, branchesRes] = await Promise.all([
-          supabase.from('clubs').select('*').order('name'),
-          supabase.from('club_branches').select('*').order('name')
-        ]);
+      const fetchPromise = Promise.all([
+        supabase.from('clubs').select('*').order('name'),
+        supabase.from('club_branches').select('*').order('name')
+      ]);
 
-        if (clubsRes.data) {
+      const res: any = await Promise.race([fetchPromise, timeoutPromise]);
+
+      if (res && !res.timeout && Array.isArray(res)) {
+        const [clubsRes, branchesRes] = res;
+
+        if (clubsRes?.data) {
           const mappedClubs: Club[] = clubsRes.data.map((c: any) => ({
             id: c.id,
             name: c.name,
@@ -104,7 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setDbClubs(mappedClubs);
         }
 
-        if (branchesRes.data) {
+        if (branchesRes?.data) {
           const mappedBranches: ClubBranch[] = branchesRes.data.map((b: any) => ({
             id: b.id,
             clubId: b.club_id,
@@ -124,91 +130,123 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }));
           setDbBranches(mappedBranches);
         }
-        
-        let user = userObj;
-        if (!user) {
-          const { data } = await supabase.auth.getUser();
-          user = data.user;
-        }
-        
-        if (user) {
-          if (user.user_metadata?.temp_password && typeof window !== 'undefined' && !window.location.pathname.includes('/update-password')) {
-            window.location.href = '/update-password';
-            return;
-          }
+      }
 
-          // Fetch actual role from DB
-          const { data: userRole } = await supabase
+      let user = userObj;
+      if (!user) {
+        const { data } = await supabase.auth.getUser();
+        user = data.user;
+      }
+
+      if (user) {
+        if (user.user_metadata?.temp_password && typeof window !== 'undefined' && !window.location.pathname.includes('/update-password')) {
+          window.location.href = '/update-password';
+          return;
+        }
+
+        // Fetch user profile from DB
+        const [userRoleRes, profileRes] = await Promise.all([
+          supabase
             .from('user_roles')
             .select('role, club_id, branch_id')
             .eq('user_id', user.id)
             .limit(1)
-            .maybeSingle();
-            
-          const dbRole = userRole?.role || 'MEMBER';
-          const dbClubId = userRole?.club_id;
-          const dbBranchId = userRole?.branch_id;
+            .maybeSingle(),
+          supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .maybeSingle()
+        ]);
 
-          // Mock-store (Scms-) fallback: roles/branch assignments live in localStorage
-          const { resolveMockRole } = await import('@/lib/mockRole');
-          const mock = resolveMockRole(user.email, user.user_metadata?.full_name);
-          const role = (dbRole !== 'MEMBER' ? dbRole : mock?.role || dbRole) as SystemRole;
-          const assignedClubId = dbClubId || mock?.clubId;
-          const assignedBranchId = dbBranchId || mock?.branchId;
-          
-          // Create a mock User object from session for context compatibility
-          const mockUser: User = {
-            id: user.id,
-            email: user.email || '',
-            fullName: user.user_metadata?.full_name || mock?.fullName || 'User',
-            status: 'Active',
-            roles: [{ role, clubId: assignedClubId, branchId: assignedBranchId, grantedAt: new Date().toISOString() }],
-            activeRole: role,
-            activeClubId: assignedClubId,
-            activeBranchId: assignedBranchId,
-            createdAt: user.created_at,
-          };
-          
-          setCurrentUser(mockUser);
-          setActiveRole(role);
-          if (assignedClubId) setActiveClubId(assignedClubId);
-          if (assignedBranchId) setActiveBranchId(assignedBranchId);
-        } else {
-          setCurrentUser(null);
-          setActiveRole('MEMBER');
-        }
-      } catch (e) {
-        console.error('Failed to load session:', e);
-      } finally {
-        setIsLoading(false);
+        const userRole = userRoleRes.data;
+        const profile = profileRes.data;
+
+        const dbRole = userRole?.role || 'MEMBER';
+        const dbClubId = userRole?.club_id;
+        const dbBranchId = userRole?.branch_id;
+
+        // Mock-store (Scms-) fallback: roles/branch assignments live in localStorage
+        const { resolveMockRole } = await import('@/lib/mockRole');
+        const mock = resolveMockRole(user.email, user.user_metadata?.full_name);
+        const role = (dbRole !== 'MEMBER' ? dbRole : mock?.role || dbRole) as SystemRole;
+        const assignedClubId = dbClubId || mock?.clubId;
+        const assignedBranchId = dbBranchId || mock?.branchId;
+
+        const mockUser: User = {
+          id: user.id,
+          email: user.email || '',
+          fullName: profile?.full_name || user.user_metadata?.full_name || mock?.fullName || 'User',
+          phone: profile?.phone || '',
+          avatarUrl: profile?.avatar_url || '',
+          icPassport: profile?.ic_passport || '',
+          residentialAddress: profile?.residential_address || '',
+          emergencyContactName: profile?.emergency_contact_name || '',
+          emergencyContactPhone: profile?.emergency_contact_phone || '',
+          preferredNadiCentre: profile?.preferred_nadi_centre || '',
+          onboardingCompleted: profile ? profile.onboarding_completed === true : false,
+          preferredLanguage: (profile?.preferred_language as 'en' | 'ms') || 'en',
+          photoVisibility: (profile?.photo_visibility as any) || 'CLUB_ONLY',
+          otherInfo: profile?.other_info || '',
+          status: 'Active',
+          roles: [{ role, clubId: assignedClubId, branchId: assignedBranchId, grantedAt: new Date().toISOString() }],
+          activeRole: role,
+          activeClubId: assignedClubId,
+          activeBranchId: assignedBranchId,
+          createdAt: user.created_at,
+        };
+
+        setCurrentUser(mockUser);
+        setActiveRole(role);
+        if (assignedClubId) setActiveClubId(assignedClubId);
+        if (assignedBranchId) setActiveBranchId(assignedBranchId);
+      } else {
+        setCurrentUser(null);
+        setActiveRole('MEMBER');
       }
+    } catch (e) {
+      console.error('Failed to load session:', e);
+    } finally {
+      setIsLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    let subscription: any;
+    let disposed = false;
+
+    // Safety fallback: ensure loading spinner is dismissed within 3.5s no matter what
+    const safetyTimer = setTimeout(() => {
+      setIsLoading(false);
+    }, 3500);
 
     loadSession();
 
-    // Listen for auth changes
+    // Listen for auth state changes
     import('@/utils/supabase/client').then(({ createClient }) => {
       const supabase = createClient();
       const { data } = supabase.auth.onAuthStateChange((event, session) => {
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
           loadSession(session?.user);
         } else if (event === 'SIGNED_OUT') {
           setCurrentUser(null);
           setActiveRole('MEMBER');
+          setActiveClubId(undefined);
+          setActiveBranchId(undefined);
         }
       });
       subscription = data.subscription;
       if (disposed) subscription.unsubscribe();
     }).catch(() => {
-      // Public entry pages must remain usable when the auth service is unavailable.
       setIsLoading(false);
     });
 
     return () => {
       disposed = true;
+      clearTimeout(safetyTimer);
       if (subscription) subscription.unsubscribe();
     };
-  }, []);
+  }, [loadSession]);
 
   // Compute authorized clubs for current user
   const authorizedClubs = React.useMemo(() => {
@@ -237,26 +275,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .map(r => r.branchId!)
     );
 
-    // If user has branch-specific roles, filter; otherwise if club-level, show all
     if (permittedBranchIds.size > 0) {
       return clubBranches.filter(b => permittedBranchIds.has(b.id));
     }
     return clubBranches;
   }, [currentUser, activeClubId, activeRole, allKnownBranches]);
 
-  // Auto-select first authorized club & branch if none active
   useEffect(() => {
     if (authorizedClubs.length > 0 && (!activeClubId || !authorizedClubs.some(c => c.id === activeClubId))) {
-      const defaultClub = authorizedClubs[0];
-      setActiveClubId(defaultClub.id);
+      setActiveClubId(authorizedClubs[0].id);
     }
   }, [authorizedClubs, activeClubId]);
 
   useEffect(() => {
     if (authorizedBranches.length > 0) {
-      if (activeBranchId === '__ALL__') {
-        return;
-      }
+      if (activeBranchId === '__ALL__') return;
       if (!activeBranchId || !authorizedBranches.some(b => b.id === activeBranchId)) {
         setActiveBranchId(authorizedBranches[0].id);
       }
@@ -336,24 +369,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return authorizedBranches.some(b => b.id === branchId) || currentUser?.roles?.some(r => r.branchId === branchId) || false;
   };
 
-  const updateProfile = async (fullName: string, phone?: string): Promise<boolean> => {
+  const updateProfile = async (dataOrName: Partial<User> | string, phoneParam?: string): Promise<boolean> => {
     try {
-      // 1. Try to update Supabase if signed in
+      const updates: Partial<User> = typeof dataOrName === 'string'
+        ? { fullName: dataOrName, phone: phoneParam }
+        : dataOrName;
+
       const { createClient } = await import('@/utils/supabase/client');
       const supabase = createClient();
       
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        const { error } = await supabase.auth.updateUser({
-          data: { full_name: fullName, phone: phone }
-        });
-        if (error) console.error('Supabase profile update failed:', error);
+        // Prepare DB profile payload
+        const profileUpdate: Record<string, any> = {
+          updated_at: new Date().toISOString(),
+        };
+        if (updates.fullName !== undefined) profileUpdate.full_name = updates.fullName;
+        if (updates.phone !== undefined) profileUpdate.phone = updates.phone;
+        if (updates.icPassport !== undefined) profileUpdate.ic_passport = updates.icPassport;
+        if (updates.residentialAddress !== undefined) profileUpdate.residential_address = updates.residentialAddress;
+        if (updates.emergencyContactName !== undefined) profileUpdate.emergency_contact_name = updates.emergencyContactName;
+        if (updates.emergencyContactPhone !== undefined) profileUpdate.emergency_contact_phone = updates.emergencyContactPhone;
+        if (updates.preferredNadiCentre !== undefined) profileUpdate.preferred_nadi_centre = updates.preferredNadiCentre;
+        if (updates.avatarUrl !== undefined) profileUpdate.avatar_url = updates.avatarUrl;
+        if (updates.photoVisibility !== undefined) profileUpdate.photo_visibility = updates.photoVisibility;
+        if (updates.onboardingCompleted !== undefined) profileUpdate.onboarding_completed = updates.onboardingCompleted;
+        if (updates.preferredLanguage !== undefined) profileUpdate.preferred_language = updates.preferredLanguage;
+        if (updates.otherInfo !== undefined) profileUpdate.other_info = updates.otherInfo;
+
+        const { error: profileErr } = await supabase
+          .from('profiles')
+          .update(profileUpdate)
+          .eq('id', session.user.id);
+
+        if (profileErr) console.warn('Supabase profiles update warning:', profileErr);
+
+        if (updates.fullName || updates.phone) {
+          await supabase.auth.updateUser({
+            data: { 
+              full_name: updates.fullName, 
+              phone: updates.phone 
+            }
+          });
+        }
       }
       
-      // 2. Also update local mock store user just in case
+      // Update local state
       if (currentUser) {
-        store.updateUser(currentUser.id, { fullName, phone });
-        setCurrentUser({ ...currentUser, fullName });
+        const updatedUser = { ...currentUser, ...updates };
+        setCurrentUser(updatedUser);
+        store.updateUser(currentUser.id, { 
+          fullName: updates.fullName || currentUser.fullName, 
+          phone: updates.phone !== undefined ? updates.phone : currentUser.phone 
+        });
       }
       
       return true;
@@ -363,10 +431,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  if (isLoading && pathname !== '/login' && pathname !== '/') {
-    return <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-    </div>;
+  const refreshSession = async () => {
+    await loadSession();
+  };
+
+  // Only show full-screen loader on protected routes during initial 3.5s
+  if (isLoading && pathname !== '/login' && pathname !== '/' && !pathname.startsWith('/api/')) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 gap-3">
+        <div className="animate-spin rounded-full h-9 w-9 border-b-2 border-indigo-600"></div>
+        <p className="text-xs font-medium text-slate-500">Loading your workspace…</p>
+      </div>
+    );
   }
 
   return (
@@ -378,6 +454,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         activeBranch,
         authorizedClubs,
         authorizedBranches,
+        isLoading,
         login,
         logout,
         switchRole,
@@ -387,6 +464,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         canAccessClub,
         canAccessBranch,
         updateProfile,
+        refreshSession,
       }}
     >
       {children}

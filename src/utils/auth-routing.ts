@@ -1,120 +1,196 @@
 import { createClient } from '@/utils/supabase/server';
 import { redirect } from 'next/navigation';
 
-export async function getDashboardRouteForUser() {
+export async function getDashboardRouteForUser(): Promise<{ route: string; onboardingRequired: boolean }> {
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    return '/login';
+    return { route: '/login', onboardingRequired: false };
   }
 
-  // Fetch user profile and status
-  const { data: profile } = await supabase
+  // Fetch or automatically initialize user profile
+  let { data: profile } = await supabase
     .from('profiles')
-    .select('status')
+    .select('*')
     .eq('id', user.id)
-    .single();
+    .maybeSingle();
 
-  if (!profile) return '/login';
+  if (!profile) {
+    try {
+      const { data: created, error: createErr } = await supabase
+        .from('profiles')
+        .insert({
+          id: user.id,
+          email: user.email || '',
+          full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+          status: 'ACTIVE',
+          onboarding_completed: false,
+        })
+        .select('*')
+        .single();
 
-  if (profile.status === 'PENDING') return '/pending-approval';
-  if (profile.status === 'INACTIVE' || profile.status === 'SUSPENDED') return '/account-suspended';
+      if (!createErr && created) {
+        profile = created;
+      }
+    } catch (e) {
+      console.warn('Auto profile initialization warning:', e);
+    }
+  }
 
-  // Fetch all active roles for the user
+  if (profile?.status === 'PENDING') {
+    return { route: '/pending-approval', onboardingRequired: false };
+  }
+  if (profile?.status === 'INACTIVE' || profile?.status === 'SUSPENDED') {
+    return { route: '/account-suspended', onboardingRequired: false };
+  }
+
+  const onboardingRequired = profile ? profile.onboarding_completed === false : true;
+
+  // Fetch all active roles for the user from Supabase
   const { data: userRoles } = await supabase
     .from('user_roles')
     .select('*')
     .eq('user_id', user.id);
 
-  // Enforce allowed roles only
-  const allowedRoles = ['SUPERADMIN', 'CLUB_ADMIN', 'BRANCH_MANAGER'];
-  let validRoles = (userRoles || []).filter(r => allowedRoles.includes(r.role));
-  let activeRole = validRoles.find(r => r.role === 'SUPERADMIN') 
-                || validRoles.find(r => r.role === 'CLUB_ADMIN') 
-                || validRoles.find(r => r.role === 'BRANCH_MANAGER');
+  // Define role priority hierarchy
+  const roleHierarchy: string[] = [
+    'SUPERADMIN',
+    'SYSTEM_ADMIN',
+    'CLUB_ADMIN',
+    'CLUB_CO_ADMIN',
+    'BRANCH_MANAGER',
+    'COACH',
+    'STAFF',
+    'VOLUNTEER',
+    'OBSERVER',
+    'ATHLETE',
+    'PARENT',
+    'MEMBER'
+  ];
 
-  // Fallback to Mock Store if no valid roles in Supabase
+  let activeRole: { role: string; club_id?: string | null; branch_id?: string | null } | null = null;
+
+  if (userRoles && userRoles.length > 0) {
+    for (const rType of roleHierarchy) {
+      const found = userRoles.find(r => r.role === rType);
+      if (found) {
+        activeRole = found;
+        break;
+      }
+    }
+  }
+
+  // Fallback to Mock Store if no role in Supabase
   if (!activeRole) {
-    // We cannot import store in edge runtime/server component easily without dynamic import
-    // But since this is a server action/route handler, we can import it.
     try {
       const { store } = await import('@/lib/store');
-      // Find member by email across all mock clubs
       for (const club of store.getClubs()) {
-        const member = store.getMembers(club.id).find((m: any) => m.email === user.email);
-        if (member && member.roles && member.roles.some((r: string) => allowedRoles.includes(r))) {
-          const role = member.roles.find((r: string) => allowedRoles.includes(r));
+        const member = store.getMembers(club.id).find((m: any) => m.email?.toLowerCase() === user.email?.toLowerCase());
+        const roles = member?.roles;
+        if (member && Array.isArray(roles) && roles.length > 0) {
+          const matchedRole = roleHierarchy.find(r => roles.includes(r)) || roles[0];
           activeRole = {
-            role: role as any,
+            role: matchedRole,
             club_id: club.id,
-            branch_id: member.branchId,
+            branch_id: member.branchId || null,
           };
-          validRoles = [activeRole];
           break;
         }
       }
     } catch (e) {
-      console.error('Mock store fallback failed', e);
+      console.warn('Mock store role fallback error:', e);
     }
   }
 
+  // If still no role assigned, default to MEMBER role rather than locking out the user
   if (!activeRole) {
-    await supabase.auth.signOut();
-    return '/login?error=unauthorized_role';
+    activeRole = {
+      role: 'MEMBER',
+      club_id: null,
+      branch_id: null,
+    };
   }
 
-  if (activeRole.role === 'CLUB_ADMIN' || activeRole.role === 'BRANCH_MANAGER') {
-    if (!activeRole.club_id) {
-      await supabase.auth.signOut();
-      return '/login?error=no_club_assigned';
-    }
-    
+  // Check club status if club is assigned
+  if (activeRole.club_id && !['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole.role)) {
     let isClubActive = false;
-    
+
     if (activeRole.club_id.startsWith('Scms-')) {
       try {
         const { store } = await import('@/lib/store');
         const mockClub = store.getClubById(activeRole.club_id);
-        if (mockClub && (mockClub.status === 'Active' || mockClub.status === 'APPROVED' as any)) {
+        if (mockClub && (mockClub.status === 'Active' || (mockClub.status as any) === 'APPROVED')) {
           isClubActive = true;
         }
-      } catch (e) { console.error('Mock club error', e); }
+      } catch (e) {
+        console.warn('Mock club validation error:', e);
+      }
     } else {
       const { data: clubData } = await supabase
         .from('clubs')
         .select('status')
         .eq('id', activeRole.club_id)
-        .single();
-      if (clubData && (clubData.status === 'Active' || clubData.status === 'APPROVED' as any)) {
+        .maybeSingle();
+
+      if (clubData && (clubData.status === 'Active' || clubData.status === 'APPROVED')) {
         isClubActive = true;
       }
     }
 
-    if (!isClubActive) {
-      await supabase.auth.signOut();
-      return '/login?error=club_pending_or_inactive';
+    if (!isClubActive && ['CLUB_ADMIN', 'CLUB_CO_ADMIN', 'BRANCH_MANAGER'].includes(activeRole.role)) {
+      return { route: '/login?error=club_pending_or_inactive', onboardingRequired: false };
     }
   }
 
-  // Route-based routing with context params
-  let params = new URLSearchParams();
+  // Construct destination URL with query parameters
+  const params = new URLSearchParams();
   if (activeRole.club_id) params.append('club_id', activeRole.club_id);
   if (activeRole.branch_id) params.append('branch_id', activeRole.branch_id);
-  
+  if (onboardingRequired) params.append('onboarding', 'true');
+
   const queryString = params.toString() ? `?${params.toString()}` : '';
 
+  let destination = '/dashboard/member';
+
   switch (activeRole.role) {
-    case 'SUPERADMIN': return '/dashboard/superadmin';
-    case 'CLUB_ADMIN': return `/dashboard/club${queryString}`;
-    case 'BRANCH_MANAGER': return `/dashboard/branch${queryString}`;
-    default: 
-      await supabase.auth.signOut();
-      return '/login?error=unauthorized_role';
+    case 'SUPERADMIN':
+      destination = `/dashboard/superadmin${queryString}`;
+      break;
+    case 'SYSTEM_ADMIN':
+      destination = `/dashboard/admin${queryString}`;
+      break;
+    case 'CLUB_ADMIN':
+    case 'CLUB_CO_ADMIN':
+      destination = `/dashboard/club${queryString}`;
+      break;
+    case 'BRANCH_MANAGER':
+      destination = `/dashboard/branch${queryString}`;
+      break;
+    case 'COACH':
+      destination = `/dashboard/trainer${queryString}`;
+      break;
+    case 'STAFF':
+      destination = `/dashboard/staff${queryString}`;
+      break;
+    case 'VOLUNTEER':
+      destination = `/dashboard/volunteer${queryString}`;
+      break;
+    case 'OBSERVER':
+      destination = `/dashboard/observer${queryString}`;
+      break;
+    case 'ATHLETE':
+    case 'PARENT':
+    case 'MEMBER':
+    default:
+      destination = `/dashboard/member${queryString}`;
+      break;
   }
+
+  return { route: destination, onboardingRequired };
 }
 
 export async function checkAuthAndRoute() {
-  const route = await getDashboardRouteForUser();
+  const { route } = await getDashboardRouteForUser();
   redirect(route);
 }

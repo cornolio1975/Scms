@@ -3,7 +3,7 @@
  * Fully normalized, multi-tenant, auditable data store with mock seed data
  */
 
-import {
+import type {
   Club,
   ClubBranch,
   Member,
@@ -30,8 +30,8 @@ import {
   AthleteGuardianRelationship,
   NewVolunteerAssignment,
   VolunteerAssignmentMember
-} from '@/types';
-import { generateImmutableId, generateIdempotencyKey } from './idGenerator';
+} from '../types/index.ts';
+import { generateImmutableId, generateIdempotencyKey } from './idGenerator.ts';
 
 // ==========================================
 // SEED DATA (PRODUCTION TEMPLATE)

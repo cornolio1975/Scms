@@ -21,8 +21,8 @@ export async function GET(request: Request) {
     if (!error) {
       // Redirect to the correct dashboard based on authoritative DB role
       const { getDashboardRouteForUser } = await import('@/utils/auth-routing');
-      const destination = await getDashboardRouteForUser();
-      return NextResponse.redirect(new URL(destination, requestUrl.origin));
+      const { route } = await getDashboardRouteForUser();
+      return NextResponse.redirect(new URL(route, requestUrl.origin));
     } else {
       console.error('Supabase exchangeCodeForSession error:', error);
     }
