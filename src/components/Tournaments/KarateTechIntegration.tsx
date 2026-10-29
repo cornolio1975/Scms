@@ -1,14 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { createClient } from '@/utils/supabase/client';
 import {
   KarateTechIntegrationService,
   KarateTechTournament,
-  KarateTechCategory,
 } from '@/lib/integrations/karateTech';
-import { TournamentRegistrationDraft, TournamentRegistrationItem, Member } from '@/types';
 import {
   Trophy,
   Calendar,
@@ -18,7 +15,7 @@ import {
   Send,
   RefreshCw,
 } from 'lucide-react';
-import { generateImmutableId, generateIdempotencyKey } from '@/lib/idGenerator';
+import { readRegistrationJson } from '@/lib/integrations/registration-response';
 
 interface KarateTechIntegrationProps {
   clubId?: string;
@@ -30,23 +27,16 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
   const [activeTab, setActiveTab] = useState<'discover' | 'drafts' | 'monitor'>('discover');
   const [tournaments, setTournaments] = useState<KarateTechTournament[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedTournament, setSelectedTournament] = useState<KarateTechTournament | null>(null);
 
   // Registration Draft Builder State
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [selectedAthleteIds, setSelectedAthleteIds] = useState<string[]>([]);
-  const [selectedCategories, setSelectedCategories] = useState<Record<string, string>>({});
   const [submissionStatus, setSubmissionStatus] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const submissionKey = useRef<string | null>(null);
-  const [liveCategories, setLiveCategories] = useState<KarateTechCategory[]>([]);
-  const [categoriesLoading, setCategoriesLoading] = useState(false);
-  const categoryLoad = useRef(0);
 
   const [clubAthletes, setClubAthletes] = useState<any[]>([]);
-  const [drafts, setDrafts] = useState<TournamentRegistrationDraft[]>([]);
+  const [drafts, setDrafts] = useState<{ id: string; tournamentName: string; status: string }[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const supabase = createClient();
 
   const refreshTournaments = async () => {
     setIsRefreshing(true);
@@ -65,165 +55,66 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
       setTournaments(data);
 
       if (clubId) {
-        if (clubId.startsWith('Scms-')) {
-          const { store } = await import('@/lib/store');
-          const members = store.getMembers(clubId, branchId);
-          // Only show those with ATHLETE role or isAthlete flag
-          const athletes = members.filter(m => m.isAthlete || m.roles?.includes('ATHLETE'));
-          setClubAthletes(athletes);
-          setDrafts([]);
-        } else {
-          // Fetch athletes from Supabase
-          let query = supabase
-            .from('user_roles')
-            .select(`
-              id,
-              profiles (
-                id,
-                email,
-                full_name,
-                gender
-              )
-            `)
-            .eq('club_id', clubId)
-            .eq('role', 'MEMBER'); // Assuming athletes are members.
-
-          if (branchId) {
-            query = query.eq('branch_id', branchId);
-          }
-
-          const { data: membersData } = await query;
-          if (membersData) {
-            const athletes = membersData.map((m: any) => ({
-              id: m.profiles.id,
-              fullName: m.profiles.full_name,
-              gender: m.profiles.gender || null,
-              dob: m.profiles.dob || m.profiles.date_of_birth || null,
-              isAthlete: true,
-              sportData: { beltRank: m.profiles.beltRank || 'White Belt', weightKg: m.profiles.weight || null }
-            }));
-            setClubAthletes(athletes);
-          }
-          
-          // Mocking drafts for now since they are not in DB schema
-          setDrafts([]); 
+        try {
+          const response = await fetch(`/api/integration/karatetech/participants?clubId=${encodeURIComponent(clubId)}`, { cache: 'no-store' });
+          const result = await readRegistrationJson(response, 'SCMS');
+          if (!response.ok || result.success !== true) throw new Error(result.message || result.error || 'Unable to load club athletes.');
+          setClubAthletes((result.members || []).map((member: any) => ({ ...member, fullName: member.full_name })));
+        } catch (error) {
+          setClubAthletes([]);
+          setSubmissionStatus(error instanceof Error ? error.message : 'Unable to load athletes.');
         }
+      } else {
+        setClubAthletes([]);
       }
       setLoading(false);
     }
     loadData();
-  }, [clubId, branchId, supabase]);
+  }, [clubId, branchId]);
 
-  const handleStartDraft = async (t: KarateTechTournament) => {
-    submissionKey.current = null;
+  const handleStartDraft = () => {
     setSubmissionStatus('');
-    setSelectedTournament(t);
     setSelectedAthleteIds([]);
-    setSelectedCategories({});
     setIsBuilderOpen(true);
-    setLiveCategories([]);
-    setCategoriesLoading(true);
-    const sequence = ++categoryLoad.current;
-    try {
-      const categories = await KarateTechIntegrationService.getTournamentCategories(t.tournamentId);
-      if (sequence === categoryLoad.current) {
-        setLiveCategories(categories);
-        if (!categories.length) setSubmissionStatus('No categories are configured for this tournament.');
-      }
-    } catch (error) {
-      if (sequence === categoryLoad.current) setSubmissionStatus(error instanceof Error ? error.message : 'Unable to load tournament categories.');
-    } finally {
-      if (sequence === categoryLoad.current) setCategoriesLoading(false);
-    }
   };
 
   const handleToggleAthlete = (athleteId: string) => {
-    submissionKey.current = null;
-    setSelectedAthleteIds(prev =>
-      prev.includes(athleteId) ? prev.filter(id => id !== athleteId) : [...prev, athleteId]
-    );
-  };
-
-  const handleCategorySelect = (athleteId: string, categoryId: string) => {
-    submissionKey.current = null;
-    setSelectedCategories(prev => ({ ...prev, [athleteId]: categoryId }));
+    setSelectedAthleteIds(prev => prev.includes(athleteId) ? prev.filter(id => id !== athleteId) : [...prev, athleteId]);
   };
 
   const handleSubmitDraft = async () => {
-    if (!selectedTournament || !clubId || isSubmitting || categoriesLoading || !liveCategories.length || !selectedAthleteIds.length) return;
-    setSubmissionStatus('Validating and submitting to KarateTech 3.0...');
-
-    const items: TournamentRegistrationItem[] = selectedAthleteIds.map(athId => {
-      const athlete = clubAthletes.find(a => a.id === athId)!;
-      const eligibleCategories = KarateTechIntegrationService.suggestEligibleCategories(
-        athlete as Member,
-        selectedTournament.tournamentDate,
-        liveCategories
-      );
-      const catId = selectedCategories[athId] || (eligibleCategories[0]?.id || '');
-      const cat = liveCategories.find(c => c.id === catId);
-
-      const val = KarateTechIntegrationService.validateParticipantCategory(
-        athlete as Member,
-        selectedTournament.tournamentDate,
-        catId,
-        liveCategories
-      );
-
-      return {
-        scmsMemberId: athlete.id,
-        memberName: athlete.fullName,
-        discipline: cat?.name.toLowerCase().includes('kata') ? 'Kata' : 'Kumite',
-        targetCategoryId: catId,
-        targetCategoryName: cat?.name || 'Category',
-        ageAtTournament: (() => {
-          const date = new Date(selectedTournament.tournamentDate);
-          const birth = new Date(athlete.dob);
-          let age = date.getUTCFullYear() - birth.getUTCFullYear();
-          if (date.getUTCMonth() < birth.getUTCMonth() || (date.getUTCMonth() === birth.getUTCMonth() && date.getUTCDate() < birth.getUTCDate())) age--;
-          return age;
-        })(),
-        weightKg: athlete.sportData?.weightKg ?? 0,
-        gender: athlete.gender,
-        eligibilityPassed: val.eligible,
-        validationError: val.reason,
-      };
-    });
-
-    const draftId = generateImmutableId('TREG');
-    const idempotencyKey = submissionKey.current || generateIdempotencyKey();
-    submissionKey.current = idempotencyKey;
-
-    const draft: TournamentRegistrationDraft = {
-      id: draftId,
-      tournamentId: selectedTournament.tournamentId,
-      tournamentName: selectedTournament.tournamentName,
-      tournamentDate: selectedTournament.tournamentDate,
-      clubId: clubId,
-      participants: items,
-      idempotencyKey,
-      status: 'READY',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
+    if (!clubId || isSubmitting || !selectedAthleteIds.length) return;
     setIsSubmitting(true);
-    const res = await KarateTechIntegrationService.submitRegistrationDraft(draft);
-    setIsSubmitting(false);
-
-    if (res.success) {
-      draft.status = 'ACKNOWLEDGED';
-      draft.acknowledgedAt = new Date().toISOString();
-      setDrafts([draft, ...drafts]);
-      setSubmissionStatus(`Success! Acknowledged by KarateTech 3.0: ${res.acknowledgementId}`);
-      setTimeout(() => {
-        setIsBuilderOpen(false);
-        setSubmissionStatus('');
-        setActiveTab('drafts');
-      }, 2000);
-    } else {
-      draft.status = 'VALIDATION_FAILED';
-      setSubmissionStatus(res.error || 'Submission failed');
+    setSubmissionStatus('Sending athlete profiles to KarateTech 3.0…');
+    try {
+      const response = await fetch('/api/integration/karatetech/participants/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ clubId, memberIds: selectedAthleteIds }),
+        signal: AbortSignal.timeout(60000),
+      });
+      const result = await readRegistrationJson(response, 'SCMS');
+      if (!response.ok || result.success !== true || !result.data) throw new Error(result.error || result.message || 'Athlete transfer was not confirmed.');
+      const data = result.data;
+      if (data.failed > 0) {
+        const failedIds = data.failures.map((failure: any) => failure.scms_member_id);
+        setSelectedAthleteIds(failedIds);
+        setSubmissionStatus(`${data.created + data.updated} transferred; ${data.failed} failed. ${data.failures.map((failure: any) => {
+          const name = clubAthletes.find(athlete => athlete.id === failure.scms_member_id)?.fullName || 'Athlete';
+          return name + ': ' + failure.reason;
+        }).join(' ')}`);
+        return;
+      }
+      if (data.total !== selectedAthleteIds.length || data.created + data.updated + data.already_synced !== data.total) {
+        throw new Error('KarateTech did not confirm every selected athlete. Please check the transfer status before retrying.');
+      }
+      setDrafts(prev => [{ id: crypto.randomUUID(), tournamentName: 'KarateTech athlete profiles', status: 'TRANSFERRED' }, ...prev]);
+      setSelectedAthleteIds([]);
+      setSubmissionStatus(`Success: ${data.total} athlete profile(s) received by KarateTech. Assign tournament categories in KarateTech.`);
+    } catch (error) {
+      setSubmissionStatus(error instanceof Error ? error.message : 'Transfer failed. Your selection is unchanged.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -239,11 +130,12 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
             <span>KarateTech 3.0 Controlled Integration</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight">
-            Official Tournament Registration
+            Athlete Transfer & Tournaments
           </h1>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button onClick={handleStartDraft} disabled={!clubId} className="px-4 py-2.5 rounded-xl bg-[#0284C7] text-white text-sm font-bold disabled:opacity-50">Send Athlete Profiles</button>
           <button
             onClick={refreshTournaments}
             disabled={isRefreshing}
@@ -283,7 +175,7 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
           }`}
         >
           <Send size={15} />
-          <span>Registration Drafts ({drafts.length})</span>
+          <span>Athlete Transfers ({drafts.length})</span>
         </button>
 
         {['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole) && (
@@ -340,11 +232,11 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
 
                 <div className="pt-3 border-t border-slate-100">
                   <button
-                    onClick={() => handleStartDraft(t)}
-                    disabled={t.registrationStatus !== 'Open'}
+                    onClick={handleStartDraft}
+                    disabled={!clubId}
                     className="w-full py-2.5 px-4 rounded-xl font-bold text-sm text-white bg-[#0284C7] hover:bg-[#0369A1] disabled:opacity-50 flex items-center justify-center space-x-2"
                   >
-                    <span>Register Club Participants</span>
+                    <span>Send Athlete Profiles</span>
                     <ArrowRight size={16} />
                   </button>
                 </div>
@@ -356,9 +248,9 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
 
       {activeTab === 'drafts' && (
         <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs space-y-4">
-          <h3 className="font-extrabold text-base text-slate-900">Submitted & Draft Rosters</h3>
+          <h3 className="font-extrabold text-base text-slate-900">Athlete Profile Transfers</h3>
           {drafts.length === 0 ? (
-            <p className="text-xs text-slate-500">No tournament registration drafts found.</p>
+            <p className="text-xs text-slate-500">No athlete transfers recorded in this session.</p>
           ) : (
             <div className="space-y-3">
               {drafts.map(d => (
@@ -386,15 +278,15 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
          </div>
       )}
 
-      {isBuilderOpen && selectedTournament && (
+      {isBuilderOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] overflow-y-auto space-y-5">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-2xl min-w-0 w-full shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] overflow-y-auto space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-black text-lg text-slate-900">Draft Registration Builder</h3>
+              <h3 className="font-black text-lg text-slate-900">Send Athlete Profiles</h3>
               <button onClick={() => setIsBuilderOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
             </div>
 
-            {categoriesLoading && <p role="status" className="text-sm text-slate-500">Loading tournament categories…</p>}
+            <p className="text-sm text-slate-600">Send athlete identity, contact and measurement details to KarateTech's configured athlete intake. Assign tournaments and categories in KarateTech; this transfer does not register a category.</p>
             {submissionStatus && (
               <div className="p-3 bg-sky-50 border border-sky-200 text-sky-800 rounded-xl text-xs font-bold">
                 {submissionStatus}
@@ -408,13 +300,6 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                 {clubAthletes.map(ath => {
                   const isSelected = selectedAthleteIds.includes(ath.id);
-                  const eligibleCategories = KarateTechIntegrationService.suggestEligibleCategories(
-                    ath as Member,
-                    selectedTournament.tournamentDate,
-                    liveCategories
-                  );
-                  const selectedCat = selectedCategories[ath.id] || (eligibleCategories[0]?.id || '');
-
                   return (
                     <div key={ath.id} className={`p-3 rounded-2xl border text-xs space-y-2 ${isSelected ? 'bg-sky-50/60 border-[#0284C7]' : 'bg-slate-50 border-slate-200'}`}>
                       <div className="flex items-center justify-between">
@@ -423,15 +308,7 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
                           <span className="font-bold text-slate-900">{ath.fullName}</span>
                         </label>
                       </div>
-                      {isSelected && (
-                        <div className="pl-6 pt-1">
-                          <select disabled={isSubmitting} value={selectedCat} onChange={e => handleCategorySelect(ath.id, e.target.value)} className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-800">
-                            {!eligibleCategories.length && <option value="">No eligible category — check athlete details</option>}
-                            {eligibleCategories.map(cat => (
-                              <option key={cat.id} value={cat.id}>{cat.name} ({cat.gender})</option>
-                            ))}
-                          </select>
-                        </div>
+                    </div>
                       )}
                     </div>
                   );
@@ -440,9 +317,9 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex items-center justify-end">
-              <button onClick={handleSubmitDraft} disabled={selectedAthleteIds.length === 0 || isSubmitting || categoriesLoading || !liveCategories.length} className="py-2.5 px-6 rounded-xl font-bold text-sm text-white bg-[#0284C7] hover:bg-[#0369A1] disabled:opacity-50 flex items-center space-x-2">
+              <button onClick={handleSubmitDraft} disabled={selectedAthleteIds.length === 0 || isSubmitting} className="py-2.5 px-6 rounded-xl font-bold text-sm text-white bg-[#0284C7] hover:bg-[#0369A1] disabled:opacity-50 flex items-center space-x-2">
                 <Send size={15} />
-                <span>{isSubmitting ? 'Submitting…' : 'Submit to KarateTech 3.0'}</span>
+                <span>{isSubmitting ? 'Submitting…' : 'Send to KarateTech 3.0'}</span>
               </button>
             </div>
           </div>
