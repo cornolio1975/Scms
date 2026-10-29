@@ -283,7 +283,7 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
           <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-2xl min-w-0 w-full shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] overflow-y-auto space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-black text-lg text-slate-900">Send Athlete Profiles</h3>
-              <button onClick={() => setIsBuilderOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+              <button disabled={isSubmitting} aria-label="Close athlete transfer" onClick={() => setIsBuilderOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
             </div>
 
             <p className="text-sm text-slate-600">Send athlete identity, contact and measurement details to KarateTech's configured athlete intake. Assign tournaments and categories in KarateTech; this transfer does not register a category.</p>
@@ -295,21 +295,20 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
 
             <div className="space-y-3">
               <span className="text-xs font-bold text-slate-700 block">
-                Select Club Athletes ({selectedAthleteIds.length} Selected):
+                Select Club Athletes ({selectedAthleteIds.length}/100 Selected):
               </span>
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                {!clubAthletes.length && <p className="text-sm text-slate-500">No athletes available. Check your club selection and athlete profiles.</p>}
                 {clubAthletes.map(ath => {
                   const isSelected = selectedAthleteIds.includes(ath.id);
                   return (
                     <div key={ath.id} className={`p-3 rounded-2xl border text-xs space-y-2 ${isSelected ? 'bg-sky-50/60 border-[#0284C7]' : 'bg-slate-50 border-slate-200'}`}>
                       <div className="flex items-center justify-between">
                         <label className="flex items-center space-x-2.5 cursor-pointer">
-                          <input type="checkbox" disabled={isSubmitting} checked={isSelected} onChange={() => handleToggleAthlete(ath.id)} className="w-4 h-4 text-[#0284C7] rounded cursor-pointer" />
+                          <input type="checkbox" disabled={isSubmitting || (!isSelected && selectedAthleteIds.length >= 100)} checked={isSelected} onChange={() => handleToggleAthlete(ath.id)} className="w-4 h-4 text-[#0284C7] rounded cursor-pointer" />
                           <span className="font-bold text-slate-900">{ath.fullName}</span>
                         </label>
                       </div>
-                    </div>
-                      )}
                     </div>
                   );
                 })}
