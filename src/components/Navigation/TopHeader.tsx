@@ -40,12 +40,14 @@ import { SystemRole } from '@/types';
 
 interface TopHeaderProps {
   onToggleMobileDrawer: () => void;
+  mobileDrawerOpen?: boolean;
   currentModule: string;
   onSelectModule: (moduleId: string) => void;
 }
 
 export default function TopHeader({
   onToggleMobileDrawer,
+  mobileDrawerOpen = false,
   currentModule,
   onSelectModule,
 }: TopHeaderProps) {
@@ -205,21 +207,23 @@ export default function TopHeader({
   const openTasksCount = store.tasks.filter(t => t.status === 'Open').length;
 
   return (
-    <header className="sticky top-0 z-20 h-16 bg-white border-b border-[#E2E8F0] px-4 flex items-center justify-between shadow-xs">
+    <header className="sticky top-0 z-20 h-16 shrink-0 bg-white border-b border-[#E2E8F0] px-4 flex items-center justify-between shadow-xs">
       {/* Left: Mobile Toggle & Breadcrumbs */}
       <div className="flex items-center space-x-3">
         <button
           onClick={onToggleMobileDrawer}
           className="lg:hidden p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 touch-target flex items-center justify-center"
           aria-label="Open Navigation"
+          aria-expanded={mobileDrawerOpen}
+          aria-controls={mobileDrawerOpen ? "mobile-navigation" : undefined}
         >
           <Menu size={22} />
         </button>
 
-        <div className="hidden sm:flex items-center space-x-2 text-sm">
-          <span className="font-semibold text-slate-500">Scms</span>
-          <span className="text-slate-300">/</span>
-          <span className="font-bold text-slate-900 capitalize">
+        <div className="flex min-w-0 items-center space-x-2 text-sm">
+          <span className="hidden sm:inline font-semibold text-slate-500">Scms</span>
+          <span className="hidden sm:inline text-slate-300">/</span>
+          <span className="max-w-28 sm:max-w-none truncate font-bold text-slate-900 capitalize">
             {currentModule.replace(/-/g, ' ')}
           </span>
         </div>
