@@ -114,8 +114,8 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
               icPassport: athlete.icPassport, email: athlete.email, phone: athlete.phone,
               sportData: { weightKg: athlete.sportData?.weightKg, heightCm: athlete.sportData?.heightCm },
               branchId: athlete.branchId, nationality: athlete.nationality,
-              emergencyContactName: athlete.emergencyContact?.name,
-              emergencyContactPhone: athlete.emergencyContact?.phone,
+              emergencyContactName: athlete.emergencyContactName,
+              emergencyContactPhone: athlete.emergencyContactPhone,
             };
           }),
         };
