@@ -23,7 +23,7 @@ interface KarateTechIntegrationProps {
 }
 
 export default function KarateTechIntegration({ clubId, branchId }: KarateTechIntegrationProps) {
-  const { activeRole } = useAuth();
+  const { activeRole, activeClub } = useAuth();
   const [activeTab, setActiveTab] = useState<'discover' | 'drafts' | 'monitor'>('discover');
   const [tournaments, setTournaments] = useState<KarateTechTournament[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,6 +33,7 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
   const [selectedAthleteIds, setSelectedAthleteIds] = useState<string[]>([]);
   const [submissionStatus, setSubmissionStatus] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [athleteLoadError, setAthleteLoadError] = useState('');
 
   const [clubAthletes, setClubAthletes] = useState<any[]>([]);
   const [drafts, setDrafts] = useState<{ id: string; tournamentName: string; status: string }[]>([]);
@@ -56,13 +57,22 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
 
       if (clubId) {
         try {
+          setAthleteLoadError('');
+          if (clubId.startsWith('Scms-')) {
+            const { store } = await import('@/lib/store');
+            const athletes = store.getMembers(clubId, branchId === '__ALL__' ? undefined : branchId)
+              .filter(member => member.isAthlete || member.roles?.includes('ATHLETE'));
+            setClubAthletes(athletes);
+            setLoading(false);
+            return;
+          }
           const response = await fetch(`/api/integration/karatetech/participants?clubId=${encodeURIComponent(clubId)}`, { cache: 'no-store' });
           const result = await readRegistrationJson(response, 'SCMS');
           if (!response.ok || result.success !== true) throw new Error(result.message || result.error || 'Unable to load club athletes.');
           setClubAthletes((result.members || []).map((member: any) => ({ ...member, fullName: member.full_name })));
         } catch (error) {
           setClubAthletes([]);
-          setSubmissionStatus(error instanceof Error ? error.message : 'Unable to load athletes.');
+          setAthleteLoadError(error instanceof Error ? error.message : 'Unable to load athletes.');
         }
       } else {
         setClubAthletes([]);
@@ -87,10 +97,33 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
     setIsSubmitting(true);
     setSubmissionStatus('Sending athlete profiles to KarateTech 3.0…');
     try {
-      const response = await fetch('/api/integration/karatetech/participants/batch', {
+      const local = clubId.startsWith('Scms-');
+      const endpoint = local ? '/api/integration/karatetech/participants/import' : '/api/integration/karatetech/participants/batch';
+      let requestBody: any = { clubId, memberIds: selectedAthleteIds };
+      if (local) {
+        const { store } = await import('@/lib/store');
+        const club = store.getClubById(clubId);
+        requestBody = {
+          clubId,
+          clubName: club?.displayName || club?.name || activeClub?.name,
+          participants: selectedAthleteIds.map(id => {
+            const athlete = store.getMemberById(id);
+            if (!athlete || athlete.clubId !== clubId) throw new Error('A saved athlete is no longer in this club. Reopen the athlete list.');
+            return {
+              id: athlete.id, clubId, fullName: athlete.fullName, gender: athlete.gender, dob: athlete.dob,
+              icPassport: athlete.icPassport, email: athlete.email, phone: athlete.phone,
+              sportData: { weightKg: athlete.sportData?.weightKg, heightCm: athlete.sportData?.heightCm },
+              branchId: athlete.branchId, nationality: athlete.nationality,
+              emergencyContactName: athlete.emergencyContact?.name,
+              emergencyContactPhone: athlete.emergencyContact?.phone,
+            };
+          }),
+        };
+      }
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ clubId, memberIds: selectedAthleteIds }),
+        body: JSON.stringify(requestBody),
         signal: AbortSignal.timeout(60000),
       });
       const result = await readRegistrationJson(response, 'SCMS');
@@ -152,6 +185,12 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
         </div>
       </div>
 
+      <p className="text-sm text-slate-600" role="status">
+        Available athletes: <strong>{clubAthletes.length}</strong>
+        {clubId?.startsWith('Scms-') && ' • Saved on this device'}
+      </p>
+      {athleteLoadError && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{athleteLoadError}</p>}
+
       {/* Tabs */}
       <div className="flex space-x-2 border-b border-slate-200 overflow-x-auto pb-px">
         <button
@@ -175,7 +214,7 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
           }`}
         >
           <Send size={15} />
-          <span>Athlete Transfers ({drafts.length})</span>
+          <span>Transfers This Session ({drafts.length})</span>
         </button>
 
         {['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole) && (
@@ -287,6 +326,7 @@ export default function KarateTechIntegration({ clubId, branchId }: KarateTechIn
             </div>
 
             <p className="text-sm text-slate-600">Send athlete identity, contact and measurement details to KarateTech's configured athlete intake. Assign tournaments and categories in KarateTech; this transfer does not register a category.</p>
+            {athleteLoadError && <p role="alert" className="text-sm text-amber-800">{athleteLoadError}</p>}
             {submissionStatus && (
               <div className="p-3 bg-sky-50 border border-sky-200 text-sky-800 rounded-xl text-xs font-bold">
                 {submissionStatus}
