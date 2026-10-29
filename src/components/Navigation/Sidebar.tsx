@@ -37,6 +37,7 @@ import {
 interface SidebarProps {
   currentModule: string;
   onSelectModule: (moduleId: string) => void;
+  mobile?: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
 }
@@ -52,6 +53,7 @@ interface MenuItem {
 
 export default function Sidebar({
   currentModule,
+  mobile = false,
   onSelectModule,
   collapsed,
   onToggleCollapse,
@@ -225,15 +227,15 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`fixed lg:static inset-y-0 left-0 z-30 transition-all duration-300 ease-in-out flex flex-col border-r border-[#BAE6FD] bg-[#F0F9FF] select-none ${
-        collapsed ? 'w-20' : 'w-64 xl:w-72'
+      className={`${mobile ? 'flex min-h-0 flex-1' : 'hidden lg:flex lg:shrink-0'} transition-all duration-300 ease-in-out flex-col border-r border-[#BAE6FD] bg-[#F0F9FF] select-none ${
+        mobile ? 'w-full' : collapsed ? 'w-20' : 'w-64 xl:w-72'
       }`}
       style={{
         boxShadow: '1px 0 10px rgba(2, 132, 199, 0.05)',
       }}
     >
       {/* Brand Header */}
-      <div className="h-16 px-4 flex items-center justify-between border-b border-[#BAE6FD] bg-[#E0F2FE]/60">
+      <div className="h-16 shrink-0 px-4 flex items-center justify-between border-b border-[#BAE6FD] bg-[#E0F2FE]/60">
         {!collapsed && (
           <div className="flex items-center overflow-hidden h-full py-2">
             <Image
@@ -323,7 +325,7 @@ export default function Sidebar({
                         onSelectModule(item.id);
                       }
                     }}
-                    className={`w-full flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-all group ${
+                    className={`w-full flex items-center rounded-lg min-h-11 px-3 py-2 text-sm font-medium transition-all group ${
                       isMainActive
                         ? 'bg-[#E0F2FE] text-[#0284C7] font-semibold shadow-xs'
                         : 'text-slate-700 hover:bg-[#E0F2FE]/50 hover:text-slate-900'
@@ -362,7 +364,7 @@ export default function Sidebar({
                           <button
                             key={sub.id}
                             onClick={() => onSelectModule(sub.id)}
-                            className={`w-full text-left px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                            className={`w-full text-left min-h-11 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
                               isSubActive
                                 ? 'bg-[#0284C7] text-white font-semibold'
                                 : 'text-slate-600 hover:bg-[#BAE6FD]/40 hover:text-slate-900'
