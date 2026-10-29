@@ -5,7 +5,7 @@
  * Strict Rule 26: LEFT = LIGHT BLUE NAVIGATION, RIGHT = WHITE WORKSPACE
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import Sidebar from '@/components/Navigation/Sidebar';
 import TopHeader from '@/components/Navigation/TopHeader';
@@ -48,6 +48,8 @@ export default function WorkspaceView({
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
+  const closeMobileDrawer = useCallback(() => setIsMobileDrawerOpen(false), []);
+
   // Synchronize clubId and branchId from route context with AuthContext
   useEffect(() => {
     if (clubId && (!activeClub || activeClub.id !== clubId)) {
@@ -62,7 +64,7 @@ export default function WorkspaceView({
   }, [branchId, activeBranch?.id, switchBranch]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white text-slate-900 font-sans">
+    <div className="flex h-dvh overflow-hidden bg-white text-slate-900 font-sans">
       {/* 1. LEFT = LIGHT BLUE NAVIGATION (Persistent Collapsible Desktop Sidebar) */}
       <Sidebar
         currentModule={currentModule}
@@ -74,23 +76,24 @@ export default function WorkspaceView({
       {/* 2. MOBILE SLIDE-OUT DRAWER */}
       <MobileDrawer
         isOpen={isMobileDrawerOpen}
-        onClose={() => setIsMobileDrawerOpen(false)}
+        onClose={closeMobileDrawer}
         currentModule={currentModule}
         onSelectModule={mod => setCurrentModule(mod)}
       />
 
       {/* 3. RIGHT = WHITE WORKSPACE */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white">
+      <div inert={isMobileDrawerOpen} className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white">
         <TopHeader
           onToggleMobileDrawer={() => setIsMobileDrawerOpen(true)}
+          mobileDrawerOpen={isMobileDrawerOpen}
           currentModule={currentModule}
           onSelectModule={mod => setCurrentModule(mod)}
         />
 
-        <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 bg-white">
+        <main className="flex-1 overflow-auto overscroll-contain px-3 sm:px-8 py-4 sm:py-6 bg-white">
           <div className="max-w-7xl mx-auto">
             {/* Context Navigation Ribbon */}
-            <div className="mb-4 flex items-center justify-between text-xs text-slate-400 pb-2 border-b border-slate-100">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 pb-2 border-b border-slate-100">
               <span className="flex items-center space-x-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                 <span>Tenant Isolation: <strong className="text-slate-700">Active & Audited</strong></span>
