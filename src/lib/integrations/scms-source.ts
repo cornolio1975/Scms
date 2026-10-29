@@ -26,15 +26,37 @@ export async function syncContext(clubId: string) {
 }
 
 export async function sourceMembers(context: Awaited<ReturnType<typeof syncContext>>) {
+  let memberQuery = context.db.from('members').select('*').eq('club_id', context.club.id);
+  if (context.branches) memberQuery = memberQuery.in('branch_id', context.branches);
+  const { data: savedMembers, error: memberError } = await memberQuery;
+  // Older installations may not have the members table yet.
+  if (memberError && !['42P01', 'PGRST205'].includes(memberError.code)) throw new IntegrationError('Unable to load saved club athletes.', 503);
+
   let query = context.db.from('user_roles').select('user_id,branch_id').eq('club_id', context.club.id).in('role', ['MEMBER', 'ATHLETE']);
   if (context.branches) query = query.in('branch_id', context.branches);
   const { data: memberships, error } = await query;
   if (error) throw new IntegrationError('Unable to load club athletes.', 503);
   const ids = [...new Set((memberships || []).map(r => r.user_id))];
-  if (!ids.length) return [];
-  const { data, error: profileError } = await context.db.from('profiles').select('*').in('id', ids).order('full_name');
-  if (profileError) throw new IntegrationError('Unable to load athlete profiles.', 503);
-  return data || [];
+  let profiles: any[] = [];
+  if (ids.length) {
+    const result = await context.db.from('profiles').select('*').in('id', ids).order('full_name');
+    if (result.error) throw new IntegrationError('Unable to load athlete profiles.', 503);
+    profiles = result.data || [];
+  }
+  const rows: any[] = (savedMembers || []).map((member: any) => ({
+    ...member,
+    dob: member.date_of_birth || member.dob,
+    passport_ic: member.ic_passport || member.passport_ic,
+    weight: member.sport_data?.weightKg ?? member.weight,
+    height: member.sport_data?.heightCm ?? member.height,
+    emergency_contact_name: member.emergency_contact?.name || member.emergency_contact_name,
+    emergency_contact_phone: member.emergency_contact?.phone || member.emergency_contact_phone,
+  }));
+  // Keep the canonical member ID stable; linked Auth profiles are not a second athlete.
+  for (const profile of profiles) {
+    if (!rows.some(member => member.id === profile.id || member.profile_id === profile.id)) rows.push(profile);
+  }
+  return rows.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
 }
 
 export function sourcePayload(profile: any, context: Awaited<ReturnType<typeof syncContext>>, details: Record<string, unknown> = {}) {
