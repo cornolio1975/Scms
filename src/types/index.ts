@@ -48,7 +48,6 @@ export interface User {
   residentialAddress?: string;
   emergencyContactName?: string;
   emergencyContactPhone?: string;
-  preferredNadiCentre?: string;
   onboardingCompleted?: boolean;
   preferredLanguage?: 'en' | 'ms';
   photoVisibility?: 'PUBLIC' | 'CLUB_ONLY' | 'ADMIN_ONLY' | 'PRIVATE';

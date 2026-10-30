@@ -24,7 +24,6 @@ export async function POST(request: NextRequest) {
       emergencyContactName,
       emergencyContactPhone,
       requestedRole,
-      preferredNadiCentre,
       avatarUrl,
       photoVisibility,
       otherInfo,
@@ -56,10 +55,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Emergency contact phone number is required.' }, { status: 400 });
     }
 
-    if (!preferredNadiCentre || typeof preferredNadiCentre !== 'string') {
-      return NextResponse.json({ success: false, error: 'Preferred NADI centre selection is required.' }, { status: 400 });
-    }
-
     const validRoles = [
       'SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'CLUB_CO_ADMIN', 
       'BRANCH_MANAGER', 'COACH', 'STAFF', 'VOLUNTEER', 'OBSERVER', 
@@ -80,7 +75,6 @@ export async function POST(request: NextRequest) {
       phone: phone.trim(),
       emergency_contact_name: emergencyContactName.trim(),
       emergency_contact_phone: emergencyContactPhone.trim(),
-      preferred_nadi_centre: preferredNadiCentre.trim(),
       avatar_url: avatarUrl || null,
       photo_visibility: ['PUBLIC', 'CLUB_ONLY', 'ADMIN_ONLY', 'PRIVATE'].includes(photoVisibility) ? photoVisibility : 'CLUB_ONLY',
       other_info: (otherInfo || '').trim(),

@@ -183,7 +183,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           residentialAddress: profile?.residential_address || '',
           emergencyContactName: profile?.emergency_contact_name || '',
           emergencyContactPhone: profile?.emergency_contact_phone || '',
-          preferredNadiCentre: profile?.preferred_nadi_centre || '',
           onboardingCompleted: profile ? profile.onboarding_completed === true : false,
           preferredLanguage: (profile?.preferred_language as 'en' | 'ms') || 'en',
           photoVisibility: (profile?.photo_visibility as any) || 'CLUB_ONLY',
@@ -390,7 +389,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (updates.residentialAddress !== undefined) profileUpdate.residential_address = updates.residentialAddress;
         if (updates.emergencyContactName !== undefined) profileUpdate.emergency_contact_name = updates.emergencyContactName;
         if (updates.emergencyContactPhone !== undefined) profileUpdate.emergency_contact_phone = updates.emergencyContactPhone;
-        if (updates.preferredNadiCentre !== undefined) profileUpdate.preferred_nadi_centre = updates.preferredNadiCentre;
         if (updates.avatarUrl !== undefined) profileUpdate.avatar_url = updates.avatarUrl;
         if (updates.photoVisibility !== undefined) profileUpdate.photo_visibility = updates.photoVisibility;
         if (updates.onboardingCompleted !== undefined) profileUpdate.onboarding_completed = updates.onboardingCompleted;

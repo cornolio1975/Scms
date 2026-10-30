@@ -41,7 +41,6 @@ export default function ProfilePage() {
   const [postcode, setPostcode] = useState('');
   const [emergencyContactName, setEmergencyContactName] = useState('');
   const [emergencyContactPhone, setEmergencyContactPhone] = useState('');
-  const [preferredNadiCentre, setPreferredNadiCentre] = useState('');
   const [photoVisibility, setPhotoVisibility] = useState<'PUBLIC' | 'CLUB_ONLY' | 'ADMIN_ONLY' | 'PRIVATE'>('CLUB_ONLY');
   const [otherInfo, setOtherInfo] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
@@ -69,19 +68,6 @@ export default function ProfilePage() {
     'Wilayah Persekutuan Labuan', 'Wilayah Persekutuan Putrajaya'
   ];
 
-  const NADI_CENTRES = [
-    'NADI Pusat Komuniti Desa (PKD) Bandar',
-    'NADI Cyberjaya Community Centre',
-    'NADI Daerah Petaling',
-    'NADI Taman Medan',
-    'NADI Georgetown Youth Hub',
-    'NADI Johor Bahru Digital Centre',
-    'NADI Kuantan Sports & Digital Hub',
-    'NADI Kota Kinabalu Community',
-    'NADI Kuching Digital Centre',
-    'Other / Lain-lain',
-  ];
-
   useEffect(() => {
     const savedLang = localStorage.getItem('scms_language') as 'en' | 'ms';
     if (savedLang) setLang(savedLang);
@@ -93,7 +79,6 @@ export default function ProfilePage() {
       setResidentialAddress(currentUser.residentialAddress || '');
       setEmergencyContactName(currentUser.emergencyContactName || '');
       setEmergencyContactPhone(currentUser.emergencyContactPhone || '');
-      setPreferredNadiCentre(currentUser.preferredNadiCentre || NADI_CENTRES[0]);
       setPhotoVisibility(currentUser.photoVisibility || 'CLUB_ONLY');
       setOtherInfo(currentUser.otherInfo || '');
       setAvatarUrl(currentUser.avatarUrl || '');
@@ -224,7 +209,6 @@ export default function ProfilePage() {
         residentialAddress,
         emergencyContactName,
         emergencyContactPhone,
-        preferredNadiCentre,
         photoVisibility,
         otherInfo,
         avatarUrl: finalAvatarUrl,
@@ -320,7 +304,6 @@ export default function ProfilePage() {
     postcode: lang === 'en' ? 'Postcode' : 'Poskod',
     emergencyName: lang === 'en' ? 'Emergency Contact Name' : 'Nama Waris Kecemasan',
     emergencyPhone: lang === 'en' ? 'Emergency Contact Phone' : 'Telefon Waris Kecemasan',
-    nadiCentre: lang === 'en' ? 'Preferred NADI Centre' : 'Pusat NADI Pilihan',
     otherInfo: lang === 'en' ? 'Additional Notes / Medical Alerts' : 'Nota Tambahan / Alergi Perubatan',
     saveBtn: lang === 'en' ? 'Save Profile Changes' : 'Simpan Perubahan Profil',
     savingBtn: lang === 'en' ? 'Saving...' : 'Sedang Menyimpan...',
@@ -502,20 +485,6 @@ export default function ProfilePage() {
                   onChange={e => setPhone(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 text-sm text-slate-900 bg-white"
                 />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                  {t.nadiCentre}
-                </label>
-                <select
-                  value={preferredNadiCentre}
-                  onChange={e => setPreferredNadiCentre(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 text-sm text-slate-900 bg-white"
-                >
-                  {NADI_CENTRES.map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
               </div>
 
               <div className="sm:col-span-2">

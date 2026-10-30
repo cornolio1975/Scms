@@ -156,7 +156,7 @@ async function runTestSuite() {
           email, status
         ) VALUES (
           $1, $2, $3, 'Karate', 'PPM-001-SCMS-QA',
-          2026, 'Kompleks Sukan Komuniti NADI', 'Petaling Jaya', 'Selangor', 'Malaysia', '+603-78901234',
+          2026, 'Kompleks Sukan Petaling Jaya', 'Petaling Jaya', 'Selangor', 'Malaysia', '+603-78901234',
           'qa-club@spsportdatasolution.org', 'Active'
         ) RETURNING id;
       `, [MOCK_CLUB_NAME, MOCK_CLUB_CODE, MOCK_CLUB_DISPLAY]);
@@ -173,7 +173,7 @@ async function runTestSuite() {
     } else {
       const branchInsert = await client.query(`
         INSERT INTO club_branches (club_id, name, venue_name, city, state, status)
-        VALUES ($1, 'Main Honbu Dojo', 'Kompleks Sukan NADI', 'Petaling Jaya', 'Selangor', 'Active')
+        VALUES ($1, 'Main Honbu Dojo', 'Kompleks Sukan Petaling Jaya', 'Petaling Jaya', 'Selangor', 'Active')
         RETURNING id;
       `, [clubId]);
       branchId = branchInsert.rows[0].id;
@@ -223,10 +223,10 @@ async function runTestSuite() {
       await client.query(`
         INSERT INTO profiles (
           id, email, full_name, phone, status, ic_passport,
-          residential_address, preferred_nadi_centre, onboarding_completed
+          residential_address, onboarding_completed
         ) VALUES (
           $1, $2, $3, '+6012-0000000', 'ACTIVE', '800101-14-1122',
-          'Pusat Sukan Komuniti NADI, PJ', 'NADI Pusat Komuniti Desa (PKD) Bandar', true
+          'Senshi Dojo Training Ground, Petaling Jaya', true
         ) ON CONFLICT (id) DO UPDATE SET status = 'ACTIVE', onboarding_completed = true;
       `, [adminUserId, MOCK_ADMIN_EMAIL, MOCK_ADMIN_NAME]);
       console.log(`✓ Administrator profile created: ID = ${adminUserId}`);

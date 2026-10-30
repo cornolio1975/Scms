@@ -46,7 +46,6 @@ export default function OnboardingModal({ forceOpen = false, onComplete }: Onboa
   const [emergencyContactName, setEmergencyContactName] = useState('');
   const [emergencyContactPhone, setEmergencyContactPhone] = useState('');
   const [requestedRole, setRequestedRole] = useState('MEMBER');
-  const [preferredNadiCentre, setPreferredNadiCentre] = useState('');
   const [photoVisibility, setPhotoVisibility] = useState<'PUBLIC' | 'CLUB_ONLY' | 'ADMIN_ONLY' | 'PRIVATE'>('CLUB_ONLY');
   const [otherInfo, setOtherInfo] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
@@ -56,19 +55,6 @@ export default function OnboardingModal({ forceOpen = false, onComplete }: Onboa
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-
-  const NADI_CENTRES = [
-    'NADI Pusat Komuniti Desa (PKD) Bandar',
-    'NADI Cyberjaya Community Centre',
-    'NADI Daerah Petaling',
-    'NADI Taman Medan',
-    'NADI Georgetown Youth Hub',
-    'NADI Johor Bahru Digital Centre',
-    'NADI Kuantan Sports & Digital Hub',
-    'NADI Kota Kinabalu Community',
-    'NADI Kuching Digital Centre',
-    'Other / Lain-lain',
-  ];
 
   const MALAYSIAN_STATES = [
     'Johor', 'Kedah', 'Kelantan', 'Melaka', 'Negeri Sembilan',
@@ -124,7 +110,6 @@ export default function OnboardingModal({ forceOpen = false, onComplete }: Onboa
     setEmergencyContactName(draftData?.emergencyContactName || currentUser.emergencyContactName || '');
     setEmergencyContactPhone(draftData?.emergencyContactPhone || currentUser.emergencyContactPhone || '');
     setRequestedRole(draftData?.requestedRole || currentUser.activeRole || 'MEMBER');
-    setPreferredNadiCentre(draftData?.preferredNadiCentre || currentUser.preferredNadiCentre || NADI_CENTRES[0]);
     setPhotoVisibility(draftData?.photoVisibility || currentUser.photoVisibility || 'CLUB_ONLY');
     setOtherInfo(draftData?.otherInfo || currentUser.otherInfo || '');
     setAvatarUrl(draftData?.avatarUrl || currentUser.avatarUrl || '');
@@ -145,7 +130,6 @@ export default function OnboardingModal({ forceOpen = false, onComplete }: Onboa
       emergencyContactName,
       emergencyContactPhone,
       requestedRole,
-      preferredNadiCentre,
       photoVisibility,
       otherInfo,
       avatarUrl,
@@ -160,7 +144,7 @@ export default function OnboardingModal({ forceOpen = false, onComplete }: Onboa
   }, [
     fullName, phone, icPassport, residentialAddress, city, state,
     postcode, emergencyContactName, emergencyContactPhone,
-    requestedRole, preferredNadiCentre, photoVisibility, otherInfo, avatarUrl
+    requestedRole, photoVisibility, otherInfo, avatarUrl
   ]);
 
   // Clean up camera stream on unmount
@@ -274,11 +258,6 @@ export default function OnboardingModal({ forceOpen = false, onComplete }: Onboa
       return;
     }
 
-    if (!preferredNadiCentre) {
-      setError(lang === 'en' ? 'Please select a preferred NADI centre.' : 'Sila pilih pusat NADI pilihan anda.');
-      return;
-    }
-
     setLoading(true);
 
     try {
@@ -327,7 +306,6 @@ export default function OnboardingModal({ forceOpen = false, onComplete }: Onboa
           emergencyContactName,
           emergencyContactPhone,
           requestedRole,
-          preferredNadiCentre,
           avatarUrl: finalAvatarUrl,
           photoVisibility,
           otherInfo,
@@ -381,9 +359,8 @@ export default function OnboardingModal({ forceOpen = false, onComplete }: Onboa
     emergencySection: lang === 'en' ? '3. Emergency Contact' : '3. Hubungan Kecemasan / Waris',
     emergencyName: lang === 'en' ? 'Emergency Contact Name' : 'Nama Waris Kecemasan',
     emergencyPhone: lang === 'en' ? 'Emergency Contact Phone' : 'Nombor Telefon Waris Kecemasan',
-    roleSection: lang === 'en' ? '4. Role & NADI Centre' : '4. Peranan & Pusat NADI',
+    roleSection: lang === 'en' ? '4. Primary Role in Club' : '4. Peranan Utama dalam Kelab',
     userRole: lang === 'en' ? 'Your Primary Role' : 'Peranan Utama Anda',
-    nadiCentre: lang === 'en' ? 'Preferred NADI Centre' : 'Pusat NADI Pilihan',
     photoSection: lang === 'en' ? '5. Profile Photo & Visibility' : '5. Gambar Profil & Keizinan',
     uploadPhoto: lang === 'en' ? 'Upload Photo' : 'Muat Naik Gambar',
     takePhoto: lang === 'en' ? 'Use Camera' : 'Guna Kamera',
@@ -599,45 +576,29 @@ export default function OnboardingModal({ forceOpen = false, onComplete }: Onboa
                 </div>
               </div>
 
-              {/* Section 4: Role & NADI Centre */}
+              {/* Section 4: Primary Role in Club */}
               <div>
                 <h3 className="text-base font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-2">
                   <Building size={18} className="text-indigo-600" />
                   <span>{t.roleSection}</span>
                 </h3>
-                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                      {t.userRole} *
-                    </label>
-                    <select
-                      value={requestedRole}
-                      onChange={e => setRequestedRole(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-slate-900 bg-white font-medium"
-                    >
-                      <option value="MEMBER">Member / Ahli Biasa</option>
-                      <option value="ATHLETE">Athlete / Atlet Karate</option>
-                      <option value="COACH">Coach / Jurulatih</option>
-                      <option value="PARENT">Parent / Guardian (Ibu Bapa / Penjaga)</option>
-                      <option value="VOLUNTEER">Volunteer / Sukarelawan</option>
-                      <option value="CLUB_ADMIN">Club Administrator / Pentadbir Kelab</option>
-                      <option value="BRANCH_MANAGER">Branch Manager / Pengurus Cawangan</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                      {t.nadiCentre} *
-                    </label>
-                    <select
-                      value={preferredNadiCentre}
-                      onChange={e => setPreferredNadiCentre(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-slate-900 bg-white"
-                    >
-                      {NADI_CENTRES.map(centre => (
-                        <option key={centre} value={centre}>{centre}</option>
-                      ))}
-                    </select>
-                  </div>
+                <div className="mt-4 max-w-md">
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    {t.userRole} *
+                  </label>
+                  <select
+                    value={requestedRole}
+                    onChange={e => setRequestedRole(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-slate-900 bg-white font-medium"
+                  >
+                    <option value="MEMBER">Member / Ahli Biasa</option>
+                    <option value="ATHLETE">Athlete / Atlet Karate</option>
+                    <option value="COACH">Coach / Jurulatih</option>
+                    <option value="PARENT">Parent / Guardian (Ibu Bapa / Penjaga)</option>
+                    <option value="VOLUNTEER">Volunteer / Sukarelawan</option>
+                    <option value="CLUB_ADMIN">Club Administrator / Pentadbir Kelab</option>
+                    <option value="BRANCH_MANAGER">Branch Manager / Pengurus Cawangan</option>
+                  </select>
                 </div>
               </div>
 

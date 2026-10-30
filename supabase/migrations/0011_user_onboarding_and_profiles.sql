@@ -10,7 +10,6 @@ ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS postcode TEXT,
   ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT,
   ADD COLUMN IF NOT EXISTS emergency_contact_phone TEXT,
-  ADD COLUMN IF NOT EXISTS preferred_nadi_centre TEXT,
   ADD COLUMN IF NOT EXISTS avatar_url TEXT,
   ADD COLUMN IF NOT EXISTS photo_visibility TEXT DEFAULT 'CLUB_ONLY',
   ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT FALSE,
