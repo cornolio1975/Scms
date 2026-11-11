@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { createClient } from '@/utils/supabase/server';
+import { syncContext, sourceMembers } from '@/lib/integrations/scms-source';
+import { syncSavedAthlete } from '@/lib/integrations/universal-athlete-sync';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +25,7 @@ async function verifyCallerPermission(supabaseServer: any, callerUser: any, club
 
   const isSuperAdmin = callerRoles?.some((r: any) => ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(r.role));
   const isClubAdmin = callerRoles?.some((r: any) => ['CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(r.role) && r.club_id === clubId);
-  const isBranchManager = callerRoles?.some((r: any) => r.role === 'BRANCH_MANAGER' && r.club_id === clubId && (!branchId || r.branch_id === branchId));
+  const isBranchManager = callerRoles?.some((r: any) => r.role === 'BRANCH_MANAGER' && r.club_id === clubId && !!branchId && r.branch_id === branchId);
 
   return isSuperAdmin || isClubAdmin || isBranchManager;
 }
@@ -68,22 +70,6 @@ export async function POST(request: Request) {
 
     const adminClient = getAdminClient();
 
-    // Check duplicate IC / Passport within the club if IC is provided
-    if (icPassport && icPassport.trim()) {
-      const { data: existingMember } = await adminClient
-        .from('members')
-        .select('id, full_name, member_no')
-        .eq('club_id', clubId)
-        .eq('ic_passport', icPassport.trim().toUpperCase())
-        .maybeSingle();
-
-      if (existingMember) {
-        return NextResponse.json({
-          error: `Duplicate athlete: Member with IC/Passport ${icPassport} already exists (${existingMember.full_name}, ${existingMember.member_no}).`
-        }, { status: 409 });
-      }
-    }
-
     // Resolve or find a valid branch_id for the club if not specified
     let targetBranchId = branchId;
     if (!targetBranchId) {
@@ -96,6 +82,10 @@ export async function POST(request: Request) {
       targetBranchId = defaultBranch?.id || null;
     }
 
+    if(targetBranchId) {
+      const {data:branch,error}=await adminClient.from('club_branches').select('id').eq('id',targetBranchId).eq('club_id',clubId).maybeSingle();
+      if(error || !branch)return NextResponse.json({error:'The selected branch does not belong to this club.'},{status:422});
+    }
     // If still null, create a default Main Dojo branch
     if (!targetBranchId) {
       const { data: newBranch } = await adminClient
@@ -110,6 +100,12 @@ export async function POST(request: Request) {
       targetBranchId = newBranch?.id;
     }
 
+    if(icPassport?.trim()) {
+      const key=icPassport.toUpperCase().replace(/[^A-Z0-9]/g,'');
+      const {data:roster,error}=await adminClient.from('members').select('id,ic_passport').eq('club_id',clubId).eq('branch_id',targetBranchId);
+      if(error)return NextResponse.json({error:'Unable to verify existing athlete memberships.'},{status:503});
+      if(roster?.some(m=>m.ic_passport?.toUpperCase().replace(/[^A-Z0-9]/g,'')===key))return NextResponse.json({error:'This athlete already has a membership in the selected branch.'},{status:409});
+    }
     // Generate unique member_no (e.g. SCMS-10001)
     const { count } = await adminClient
       .from('members')
@@ -208,7 +204,11 @@ export async function POST(request: Request) {
       await adminClient.from('user_roles').upsert(roleInserts, { onConflict: 'user_id,role,club_id,branch_id' });
     }
 
+    let synchronization;
+    try {synchronization=await syncSavedAthlete(adminClient,insertedMember);}
+    catch{synchronization={success:false,status:'RETRY'};}
     return NextResponse.json({
+      synchronization,
       success: true,
       member: insertedMember,
       message: 'Athlete registered successfully.'
@@ -264,18 +264,26 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Member not found.' }, { status: 404 });
     }
 
-    const targetClubId = clubId || existingMember.club_id;
-    const isAuthorized = await verifyCallerPermission(supabaseServer, callerUser, targetClubId, branchId);
+    const targetClubId = existingMember.club_id;
+    if (clubId && clubId !== targetClubId) return NextResponse.json({error:'Club transfers require a separate membership operation.'},{status:409});
+    const isAuthorized = await verifyCallerPermission(supabaseServer, callerUser, targetClubId, existingMember.branch_id);
     if (!isAuthorized) {
       return NextResponse.json({ error: 'Forbidden: Insufficient permissions to edit this athlete.' }, { status: 403 });
     }
 
+    if (!body.expectedUpdatedAt || body.expectedUpdatedAt !== existingMember.updated_at) {
+      return NextResponse.json({error:'Athlete changed since this form was opened. Reload and try again.'},{status:409});
+    }
+    if (branchId !== undefined && branchId !== existingMember.branch_id) {
+      return NextResponse.json({error:'Move branches through the membership transfer flow; profile edits preserve membership.'},{status:409});
+    }
     // Check duplicate IC if changing IC
     if (icPassport && icPassport.trim().toUpperCase() !== existingMember.ic_passport) {
       const { data: dupMember } = await adminClient
         .from('members')
         .select('id, full_name')
         .eq('club_id', targetClubId)
+        .eq('branch_id', existingMember.branch_id)
         .eq('ic_passport', icPassport.trim().toUpperCase())
         .neq('id', memberId)
         .maybeSingle();
@@ -315,6 +323,7 @@ export async function PUT(request: Request) {
       .from('members')
       .update(updatePayload)
       .eq('id', memberId)
+      .eq('updated_at', body.expectedUpdatedAt)
       .select()
       .single();
 
@@ -323,9 +332,14 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Failed to update member: ' + updateErr.message }, { status: 500 });
     }
 
+    let synchronization;
+    try { synchronization=await syncSavedAthlete(adminClient,updatedMember); }
+    catch { synchronization={success:false,status:'RETRY'}; }
+    const {data:freshMember}=await adminClient.from('members').select('*').eq('id',memberId).single();
     return NextResponse.json({
+      synchronization,
       success: true,
-      member: updatedMember,
+      member: freshMember || updatedMember,
       message: 'Athlete updated successfully.'
     });
 
@@ -333,4 +347,13 @@ export async function PUT(request: Request) {
     console.error('Error in PUT /api/admin/members:', err);
     return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
   }
+}
+
+export async function GET(request: Request) {
+ try {
+  const context=await syncContext(new URL(request.url).searchParams.get('clubId') || '');
+  const members=(await sourceMembers(context)).filter(m=>m.__databaseRow).map(m=>m.__databaseRow);
+  const {data:states}=members.length ? await context.db.from('athlete_sync_state').select('source_id,status,last_error').in('source_id',members.map(m=>m.id)) : {data:[]};
+  return NextResponse.json({success:true,members:members.map(m=>({...m,synchronization:states?.find((s:any)=>s.source_id===m.id)}))});
+ } catch {return NextResponse.json({success:false,error:'Unable to load authorized athletes.'},{status:403});}
 }

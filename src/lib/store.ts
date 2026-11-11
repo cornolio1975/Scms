@@ -1062,16 +1062,15 @@ class ScmsStore {
   }
 
   updateMember(memberId: string, updates: Partial<Member>, operatorName: string): Member | undefined {
-    let idx = this.members.findIndex(m => 
-      m.id === memberId || 
-      (m.userId && m.userId === memberId) || 
-      (m.email && (m.email.toLowerCase() === memberId.toLowerCase() || (updates.email && m.email.toLowerCase() === updates.email.toLowerCase())))
-    );
-
+    const direct=this.members.findIndex(m=>m.id===memberId);
+    const linked=this.members.map((m,index)=>({m,index})).filter(({m})=>m.userId===memberId &&
+      (!updates.clubId || m.clubId===updates.clubId) && (!updates.branchId || m.branchId===updates.branchId));
+    if(direct===-1 && linked.length>1) throw new Error('Select the exact athlete membership before editing.');
+    let idx=direct!==-1?direct:(linked[0]?.index ?? -1);
     if (idx === -1) {
       const user = this.users.find(u => 
         u.id === memberId || 
-        (u.email && (u.email.toLowerCase() === memberId.toLowerCase() || (updates.email && u.email.toLowerCase() === updates.email.toLowerCase())))
+        false
       );
       const newM: Member = {
         id: memberId.startsWith('Scms-MEM') ? memberId : `Scms-MEM-${Date.now()}`,
@@ -1113,7 +1112,7 @@ class ScmsStore {
     const userIdx = this.users.findIndex(u => 
       u.id === memberId || 
       (updatedMember.userId && u.id === updatedMember.userId) || 
-      (u.email && updatedMember.email && u.email.toLowerCase() === updatedMember.email.toLowerCase())
+      false
     );
 
     if (userIdx !== -1 && updates.roles) {

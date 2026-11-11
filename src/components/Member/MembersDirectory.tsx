@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import ParentGuardianDetails from './ParentGuardianDetails';
 import DataManagementCenter from './DataManagementCenter';
+import { personalProfile, profileFields, browserProfilePatch, sameProfile } from '@/lib/integrations/athlete-profile';
 import { ParentContact, GuardianRelationshipType } from '@/types';
 
 export type MemberTab = 'all' | 'athletes' | 'guardians' | 'data-management';
@@ -52,6 +53,9 @@ export default function MembersDirectory({
 }: MembersDirectoryProps) {
   const { activeRole, activeClub, activeBranch, currentUser } = useAuth();
   
+  const [syncConflict,setSyncConflict]=useState<{member:any;result:any}|null>(null);
+  const [profileSyncBusy,setProfileSyncBusy]=useState(false);
+
   // Navigation Tabs state
   const [activeTab, setActiveTab] = useState<MemberTab>(initialTab);
 
@@ -260,7 +264,7 @@ export default function MembersDirectory({
         }
 
         const existingMember = Array.from(uniqueMembersMap.values()).find(
-          m => m.id === u.id || (u.email && m.email && m.email.toLowerCase() === u.email.toLowerCase())
+          m => m.id === u.id || m.userId === u.id
         );
 
         if (existingMember) {
@@ -337,7 +341,7 @@ export default function MembersDirectory({
         data.forEach((r: any) => {
           if (r.profiles) {
             const existing = Array.from(uniqueMembersMap.values()).find(
-              m => m.id === r.profiles.id || (r.profiles.email && m.email && m.email.toLowerCase() === r.profiles.email.toLowerCase())
+              m => m.id === r.profiles.id || m.userId === r.profiles.id
             );
             if (existing) {
               if (!existing.roles.includes(r.role)) {
@@ -364,9 +368,39 @@ export default function MembersDirectory({
       // Non-fatal
     }
 
+    if (!currentClubId.startsWith('Scms-')) {
+      try {
+        const response=await fetch('/api/admin/members?clubId='+encodeURIComponent(currentClubId),{cache:'no-store'});
+        const result=await response.json();
+        if(response.ok) for(const m of result.members || []) {
+          if(currentBranchId && currentBranchId!=='__ALL__' && m.branch_id!==currentBranchId)continue;
+          uniqueMembersMap.set(m.id,{...m,__databaseMember:true,fullName:m.full_name,icPassport:m.ic_passport,
+            branchId:m.branch_id,clubId:m.club_id,dob:m.date_of_birth,photoUrl:m.photo_url,
+            sportData:m.sport_data || {},updatedAt:m.updated_at,roles:['ATHLETE'],isAthlete:true});
+        }
+      }catch{/* Keep the previously loaded roster on connectivity failures. */}
+    }
     setMembers(Array.from(uniqueMembersMap.values()));
     setLoading(false);
   }, [currentClubId, currentBranchId, supabase]);
+
+  useEffect(() => {
+    if(!currentClubId || !['SUPERADMIN','SYSTEM_ADMIN','CLUB_ADMIN','CLUB_CO_ADMIN','BRANCH_MANAGER'].includes(activeRole || ''))return;
+    let stopped=false,busy=false;
+    const run=async()=>{
+      if(stopped || busy)return;busy=true;
+      try {
+        if(currentClubId.startsWith('Scms-')) {
+          if(!['SUPERADMIN','SYSTEM_ADMIN'].includes(activeRole || ''))return;
+          const {syncBrowserAthletes}=await import('@/lib/integrations/browser-athlete-sync');
+          await syncBrowserAthletes(currentClubId,currentBranchId);
+        }else await fetch('/api/integration/karatetech/athlete-profiles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clubId:currentClubId})});
+        if(!stopped)await fetchMembers();
+      }catch{/* A failed sync must never erase a saved athlete. */}finally{busy=false;}
+    };
+    void run();const timer=setInterval(run,60000);
+    return()=>{stopped=true;clearInterval(timer);};
+  },[currentClubId,currentBranchId,activeRole,fetchMembers]);
 
   // Fetch Parents & Guardians
   const fetchParentsAndGuardians = useCallback(async () => {
@@ -916,9 +950,9 @@ export default function MembersDirectory({
     const height = formData.get('height') ? parseFloat(formData.get('height') as string) : undefined;
 
     // Dojo / Branch, Coach, Belt Rank, Grading Date, Discipline, Category
-    const branchIdToSave = (formData.get('branchId') as string) !== undefined
+    const branchIdToSave = formData.has('branchId')
       ? (formData.get('branchId') as string)
-      : editBranchId;
+      : editBranchId || editingMember.branchId;
     const assignedCoachName = (formData.get('assignedCoachName') as string) || editCoach || 'Shihan Kannan';
     const beltRank = (formData.get('beltRank') as string) || editBeltRank || 'Black Belt (1st Dan+)';
     const lastGradingDate = (formData.get('lastGradingDate') as string) || editGradingDate || undefined;
@@ -948,9 +982,23 @@ export default function MembersDirectory({
       competitionEvents,
     };
 
+    if (editingMember.__databaseMember) {
+      try {
+        const response=await fetch('/api/admin/members', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          memberId:editingMember.id,clubId:currentClubId,branchId:branchIdToSave || editingMember.branchId,
+          expectedUpdatedAt:editingMember.updatedAt,fullName,icPassport,phone,gender,dob,nationality,
+          medicalNotes,assignedCoachName,sportData:updatedSportData,
+        })});
+        const result=await response.json();
+        if(!response.ok)throw new Error(result.error || 'Unable to save athlete.');
+        if(!result.synchronization?.success)alert('Athlete saved. Universal sync needs attention: ' + (result.synchronization?.status || 'RETRY'));
+        setIsEditModalOpen(false);await fetchMembers();return;
+      }catch(error){alert(error instanceof Error?error.message:'Unable to save athlete.');return;}
+    }
+
     // 1. Optimistic UI update
     setMembers(prev => prev.map(m => {
-      if (m.id === editingMember.id || (editingMember.email && m.email && m.email.toLowerCase() === editingMember.email.toLowerCase())) {
+      if (m.id === editingMember.id) {
         return {
           ...m,
           fullName,
@@ -1062,7 +1110,39 @@ export default function MembersDirectory({
       }
     }
 
+    if(currentClubId?.startsWith('Scms-') && ['SUPERADMIN','SYSTEM_ADMIN'].includes(activeRole || '')) {
+      try {
+        const {syncBrowserAthletes}=await import('@/lib/integrations/browser-athlete-sync');
+        const result=await syncBrowserAthletes(currentClubId,currentBranchId);
+        if(!result.success)alert('Athlete saved locally. Universal synchronization has pending conflicts or connection errors.');
+      }catch{alert('Athlete saved locally. Universal synchronization will retry.');}
+    }
     await fetchMembers();
+  };
+
+  const synchronizeMember=async(member:any,resolution?:{choice:string;revision:number})=>{
+    if(profileSyncBusy)return;setProfileSyncBusy(true);
+    try {
+      const browser=currentClubId?.startsWith('Scms-');
+      let source=member;
+      if(browser){const {store}=await import('@/lib/store');source=store.members.find(m=>m.id===member.id);}
+      if(!source)throw new Error('Select a saved athlete record.');
+      const snapshot=personalProfile(source);
+      const response=await fetch('/api/integration/karatetech/athlete-profiles'+(browser?'/browser':''),{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(browser?{member:source,resolution}:{clubId:currentClubId,memberId:member.id,resolution}),
+      });
+      const body=await response.json();const result=browser?body:body.results?.[0];
+      if(result?.status==='CONFLICT') {setSyncConflict({member:source,result});return;}
+      if(!result?.success)throw new Error(body.error || result?.error || result?.status || 'Profile sync could not complete.');
+      if(browser) {
+        const {store}=await import('@/lib/store');const current=store.members.find(m=>m.id===source.id);
+        if(!current || !sameProfile(current,snapshot) || current.branchId!==source.branchId)throw new Error('Athlete changed during synchronization. Try again.');
+        store.updateMember(source.id,{...browserProfilePatch(current,result.profile),universalSync:{revision:result.revision,profile:result.profile,athleteId:result.athlete_id}} as any,'Profile conflict resolution');
+      }
+      setSyncConflict(null);await fetchMembers();
+    }catch(error){alert(error instanceof Error?error.message:'Profile sync failed.');}
+    finally{setProfileSyncBusy(false);}
   };
 
   // Delete Member
@@ -1168,7 +1248,7 @@ export default function MembersDirectory({
           </p>
         </div>
 
-        {(activeRole === 'SUPERADMIN' || activeRole === 'CLUB_ADMIN' || activeRole === 'BRANCH_MANAGER') && (
+        {(['SUPERADMIN','SYSTEM_ADMIN','CLUB_ADMIN','CLUB_CO_ADMIN','BRANCH_MANAGER'].includes(activeRole || '')) && (
           <div className="flex items-center space-x-2">
             {activeTab === 'guardians' ? (
               <button
@@ -1250,6 +1330,21 @@ export default function MembersDirectory({
           <span>Data Management Center</span>
         </button>
       </div>
+
+      {syncConflict && <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4">
+        <section role="dialog" aria-modal="true" aria-label="Resolve athlete profile conflict" className="bg-white rounded-xl p-6 w-full max-w-2xl shadow-xl">
+          <h2 className="font-bold text-lg">Review athlete profile differences</h2>
+          <p className="text-sm my-3">{syncConflict.member.fullName || syncConflict.member.full_name}. Choosing details updates this athlete across linked records. Club and branch membership stays separate.</p>
+          <div className="max-h-72 overflow-auto"><table className="w-full text-sm"><thead><tr><th className="text-left p-2">Field</th><th className="text-left p-2">Club details</th><th className="text-left p-2">Universal details</th></tr></thead><tbody>
+            {profileFields.filter(key=>personalProfile(syncConflict.member)[key]!==personalProfile(syncConflict.result.profile)[key]).map(key=><tr key={key} className="border-t"><td className="p-2">{key.replaceAll('_',' ')}</td><td className="p-2">{String(personalProfile(syncConflict.member)[key] ?? '—')}</td><td className="p-2">{String(syncConflict.result.profile[key] ?? '—')}</td></tr>)}
+          </tbody></table></div>
+          <div className="flex gap-3 mt-5 flex-wrap">
+            <button type="button" disabled={profileSyncBusy} onClick={()=>synchronizeMember(syncConflict.member,{choice:'local',revision:syncConflict.result.revision})} className="px-3 py-2 rounded bg-sky-700 text-white">Keep club details</button>
+            <button type="button" disabled={profileSyncBusy} onClick={()=>synchronizeMember(syncConflict.member,{choice:'remote',revision:syncConflict.result.revision})} className="px-3 py-2 rounded border">Use universal details</button>
+            <button type="button" onClick={()=>setSyncConflict(null)} className="px-3 py-2">Cancel</button>
+          </div>
+        </section>
+      </div>}
 
       {/* =================================================================== */}
       {/* TAB 1: ALL MEMBERS                                                  */}
@@ -1419,8 +1514,9 @@ export default function MembersDirectory({
                           </span>
                         </td>
                         <td className="py-3.5 px-4 text-right">
-                          {(activeRole === 'SUPERADMIN' || activeRole === 'CLUB_ADMIN' || activeRole === 'BRANCH_MANAGER') && (
+                          {(['SUPERADMIN','SYSTEM_ADMIN','CLUB_ADMIN','CLUB_CO_ADMIN','BRANCH_MANAGER'].includes(activeRole || '')) && (
                             <div className="flex items-center justify-end space-x-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button type="button" disabled={profileSyncBusy} onClick={()=>synchronizeMember(m)} className="px-2 py-1 text-xs text-sky-700" title="Synchronize universal athlete profile">Sync profile</button>
                               <button
                                 onClick={() => openEditMemberModal(m)}
                                 className="p-1.5 text-slate-400 hover:text-[#0284C7] hover:bg-sky-50 rounded-lg transition-colors"
@@ -1661,12 +1757,13 @@ export default function MembersDirectory({
                           <td className="py-3.5 px-4">
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-[#0284C7] border border-sky-200 space-x-1">
                               <ShieldCheck size={11} />
-                              <span>KT 3.0 Synced</span>
+                              <span>{a.universalSync || a.synchronization?.status==='SYNCED' ? 'Profile synced' : a.synchronization?.status==='CONFLICT' ? 'Review sync conflict' : 'Sync pending'}</span>
                             </span>
                           </td>
 
                           <td className="py-3.5 px-4 text-right">
                             <div className="flex items-center justify-end space-x-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button type="button" disabled={profileSyncBusy} onClick={()=>synchronizeMember(a)} className="px-2 py-1 text-xs text-sky-700">Sync profile</button>
                               <button
                                 onClick={() => openEditMemberModal(a)}
                                 className="p-1.5 text-slate-400 hover:text-[#0284C7] hover:bg-sky-50 rounded-lg transition-colors"

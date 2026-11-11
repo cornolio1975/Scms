@@ -45,6 +45,7 @@ export async function sourceMembers(context: Awaited<ReturnType<typeof syncConte
   }
   const rows: any[] = (savedMembers || []).map((member: any) => ({
     ...member,
+    __databaseRow: member,
     dob: member.date_of_birth || member.dob,
     passport_ic: member.ic_passport || member.passport_ic,
     weight: member.sport_data?.weightKg ?? member.weight,

@@ -164,6 +164,7 @@ export interface SportConfiguration {
 export type MemberStatus = 'Active' | 'Inactive' | 'Suspended' | 'Archived' | 'Transferred';
 
 export interface Member {
+  universalSync?: { revision: number; profile: Record<string, any>; athleteId: string };
   id: string; // e.g. "Scms-MEM-000001"
   clubId: string;
   branchId: string;

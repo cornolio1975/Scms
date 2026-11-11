@@ -15,6 +15,9 @@ async function getSupabaseServerClient() {
 // -----------------------------------------------------------------------------
 
 export interface KarateTechParticipantPayload {
+  address?: string | null;
+  photo_url?: string | null;
+  profile_revision?: number;
   discipline?: AthleteDiscipline;
   isKumite?: boolean;
   isKata?: boolean;
@@ -163,6 +166,9 @@ export function toKarateTechPayload(input: any): KarateTechParticipantPayload {
   const allowSimilarOverride = Boolean(input.allow_similar_override || input.allowSimilarOverride);
 
   return {
+    address: input.address || null,
+    photo_url: input.photo_url || input.photoUrl || null,
+    profile_revision: input.profile_revision ?? input.universalSync?.revision,
     ...disciplineFlags(athleteDiscipline(input)),
     scms_participant_id: scmsId,
     full_name: fullName,
@@ -249,6 +255,15 @@ export class KarateTechApiClient {
       }
       throw new Error('KarateTech connection failed (fetch failed). Check that KARATETECH_API_URL points to a running Node.js deployment and that its DNS and HTTPS certificate work.');
     }
+  }
+
+  static async syncAthleteProfile(payload: unknown): Promise<any> {
+    const response = await this.fetchWithTimeout('/api/integration/scms/athlete-profiles', {
+      method:'POST',body:JSON.stringify(payload),cache:'no-store',
+    });
+    const result=await response.json();
+    if (!response.ok && response.status!==409) throw new Error('Athlete profile synchronization is unavailable.');
+    return result;
   }
 
   /**
@@ -464,7 +479,7 @@ export class KarateTechSyncService {
   static async executeSync(rawPayload: any, userId: string, trackingClient?: any) {
     let supabase: any = trackingClient || await getSupabaseServerClient();
 
-    const payload = toKarateTechPayload(rawPayload);
+    let payload = toKarateTechPayload(rawPayload);
     const requestId = `SCMS-SYNC-${crypto.randomUUID()}`;
 
     // 1. Validation Check
@@ -472,6 +487,16 @@ export class KarateTechSyncService {
       this.validatePayload(payload);
     } catch (error: any) {
       return { success: false, error: error.message, status: 'FAILED' };
+    }
+
+    if(supabase) {
+      const {data:member}=await supabase.from('members').select('*').eq('id',payload.scms_participant_id).maybeSingle();
+      if(member) {
+        const {syncSavedAthlete}=await import('./universal-athlete-sync');
+        const universal=await syncSavedAthlete(supabase,member);
+        if(!universal.success)return {success:false,status:'CONFLICT',error:'Resolve the universal athlete profile conflict before transferring.'};
+        payload={...payload,...universal.profile,profile_revision:universal.revision};
+      }
     }
 
     // 2. Idempotency Check in scms_karatetech_participant_links
@@ -651,6 +676,16 @@ export class KarateTechSyncService {
         participants
       };
 
+      if(supabase) {
+        const {syncSavedAthlete}=await import('./universal-athlete-sync');
+        for(let index=0;index<participants.length;index++) {
+          const {data:member}=await supabase.from('members').select('*').eq('id',participants[index].scms_participant_id).maybeSingle();
+          if(!member)continue;
+          const universal=await syncSavedAthlete(supabase,member);
+          if(!universal.success)throw new Error('Resolve universal athlete profile conflicts before transferring this batch.');
+          participants[index]={...participants[index],...universal.profile,profile_revision:universal.revision};
+        }
+      }
       const result = await KarateTechApiClient.syncParticipantsBulk(payload);
 
       // Persist status updates to scms_karatetech_participant_links
