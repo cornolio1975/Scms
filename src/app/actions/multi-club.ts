@@ -16,6 +16,13 @@ function getAdminClient() {
  */
 export async function getPlatformKpisAction() {
   try {
+    const sessionClient = await createClient();
+    const { data: { user } } = await sessionClient.auth.getUser();
+    if (!user) return { success: false, error: 'Not authenticated' };
+    const { data: roles } = await sessionClient.from('user_roles').select('role').eq('user_id', user.id);
+    if (!roles?.some(r => ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(r.role))) {
+      return { success: false, error: 'Platform metrics are restricted to platform administrators' };
+    }
     const adminClient = getAdminClient();
     const { store } = await import('@/lib/store');
     const storeClubs = store.getClubs();
@@ -753,100 +760,12 @@ export async function assignBranchManagerAction(params: {
   managerEmail?: string;
 }) {
   try {
-    const { clubId, branchId, targetUserId, managerName, managerEmail } = params;
-
-    if (!clubId || !branchId || (!targetUserId && !managerEmail)) {
-      return { success: false, error: 'Club ID, Branch ID, and Member are required.' };
-    }
-
-    if (clubId.startsWith('Scms-')) {
-      const { store } = await import('@/lib/store');
-      store.assignBranchManager(clubId, branchId, targetUserId || managerEmail || managerName || '');
-      revalidatePath('/dashboard');
-      return { success: true };
-    }
-
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    // Verify permissions: Superadmin or Club Admin for this club
-    if (user) {
-      const { data: userRoles } = await supabase
-        .from('user_roles')
-        .select('role, club_id')
-        .eq('user_id', user.id);
-
-      const isSuperAdmin = userRoles?.some((r: any) => r.role === 'SUPERADMIN' || r.role === 'SYSTEM_ADMIN');
-      const isClubAdmin = userRoles?.some((r: any) => (r.role === 'CLUB_ADMIN' || r.role === 'CLUB_CO_ADMIN') && r.club_id === clubId);
-
-      if (!isSuperAdmin && !isClubAdmin) {
-        return { success: false, error: 'Unauthorized: Only Superadmins and Club Admins can assign branch managers.' };
-      }
-    }
-
-    let resolvedUserId = targetUserId;
-    if (managerEmail && (!resolvedUserId || resolvedUserId.startsWith('Scms-') || !resolvedUserId.includes('-'))) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('email', managerEmail)
-        .maybeSingle();
-      if (profile) resolvedUserId = profile.id;
-    }
-
-    // 1. Grant BRANCH_MANAGER role in user_roles
-    if (resolvedUserId && resolvedUserId.length > 20) {
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .upsert({
-          user_id: resolvedUserId,
-          club_id: clubId,
-          branch_id: branchId,
-          role: 'BRANCH_MANAGER'
-        }, { onConflict: 'user_id,club_id,role' });
-
-      if (roleError) console.error('Error assigning BRANCH_MANAGER role:', roleError);
-    }
-
-    // 2. Update club_branches
-    const branchUpdates: Record<string, any> = {
-      updated_at: new Date().toISOString()
-    };
-    if (resolvedUserId && resolvedUserId.length > 20) {
-      branchUpdates.manager_id = resolvedUserId;
-    }
-
-    const { error: branchError } = await supabase
-      .from('club_branches')
-      .update(branchUpdates)
-      .eq('id', branchId);
-
-    if (branchError) {
-      console.error('Error updating branch manager:', branchError);
-    }
-
-    // 3. Audit Log
-    if (user) {
-      await supabase.from('audit_logs').insert({
-        user_id: user.id,
-        club_id: clubId,
-        action: 'BRANCH_MANAGER_ASSIGNED',
-        entity_type: 'BRANCH',
-        entity_id: branchId,
-        changes: {
-          assignedManager: managerName || resolvedUserId,
-          managerEmail: managerEmail || null,
-          assignedBy: user.email,
-          timestamp: new Date().toISOString()
-        }
-      });
-    }
-
+    const { assignManager } = await import('@/lib/server/branch-manager');
+    const result = await assignManager(params);
     revalidatePath('/dashboard');
-    return { success: true };
+    return { success: true, ...result };
   } catch (error: any) {
-    console.error('Error in assignBranchManagerAction:', error);
-    return { success: false, error: error.message };
+    return { success: false, accountCreated: false, error: error.message || 'Unable to assign manager' };
   }
 }
 

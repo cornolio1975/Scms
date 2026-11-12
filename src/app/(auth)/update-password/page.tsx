@@ -18,8 +18,8 @@ export default function UpdatePassword() {
       setError('Passwords do not match');
       return;
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (password.length < 8 || password === 'Password123!') {
+      setError('Choose a new password of at least 8 characters, different from the temporary password');
       return;
     }
 

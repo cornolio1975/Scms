@@ -36,22 +36,25 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
 
-    // Mock-store clubs (Scms- prefix) keep roles in localStorage, which the
-    // middleware cannot read. Role enforcement for these happens client-side.
-    const clubIdParam = request.nextUrl.searchParams.get('club_id') || '';
-    if (clubIdParam.startsWith('Scms-')) {
-      return supabaseResponse
+    const { data: roles, error: rolesError } = await supabase.from('user_roles')
+      .select('role,club_id,branch_id').eq('user_id', user.id);
+    if (rolesError) return new NextResponse('Unable to verify access', { status: 503 });
+    const elevated = roles?.some(r => ['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(r.role));
+    const manager = roles?.find(r => ['BRANCH_MANAGER', 'BRANCH_CO_ADMIN'].includes(r.role));
+    if (!elevated && manager) {
+      const clubId = request.nextUrl.searchParams.get('club_id');
+      const branchId = request.nextUrl.searchParams.get('branch_id');
+      if ((clubId && clubId !== manager.club_id) || (branchId && branchId !== manager.branch_id)) {
+        return new NextResponse('Forbidden: assigned branch only', { status: 403 });
+      }
+      if (pathname !== '/dashboard/branch' && pathname !== '/dashboard/profile') {
+        const url = new URL('/dashboard/branch', request.url);
+        if (manager.club_id) url.searchParams.set('club_id', manager.club_id);
+        if (manager.branch_id) url.searchParams.set('branch_id', manager.branch_id);
+        return NextResponse.redirect(url);
+      }
     }
-
-    // Determine role and routing
-    const { data: roleData } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single();
-
-    const role = roleData?.role || 'MEMBER';
+    const role = roles?.find(r => ['SUPERADMIN', 'CLUB_ADMIN'].includes(r.role))?.role || manager?.role || roles?.[0]?.role || 'MEMBER';
 
     // Route Protection Logic
     if (pathname.startsWith('/dashboard/club') && !['SUPERADMIN', 'CLUB_ADMIN'].includes(role)) {
@@ -61,7 +64,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/dashboard', request.url)); // Default fallback
     }
 
-    if (pathname.startsWith('/dashboard/branch') && !['SUPERADMIN', 'CLUB_ADMIN', 'BRANCH_MANAGER'].includes(role)) {
+    if (pathname.startsWith('/dashboard/branch') && !['SUPERADMIN', 'CLUB_ADMIN', 'BRANCH_MANAGER', 'BRANCH_CO_ADMIN'].includes(role)) {
       return NextResponse.redirect(new URL('/dashboard', request.url));
     }
   }

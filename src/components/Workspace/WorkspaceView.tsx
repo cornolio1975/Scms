@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import Sidebar from '@/components/Navigation/Sidebar';
 import TopHeader from '@/components/Navigation/TopHeader';
 import MobileDrawer from '@/components/Navigation/MobileDrawer';
+import BranchDashboard from '@/components/Dashboard/BranchDashboard';
 import DashboardOverview from '@/components/Dashboard/DashboardOverview';
 import MembersDirectory from '@/components/Member/MembersDirectory';
 import DataManagementCenter from '@/components/Member/DataManagementCenter';
@@ -114,7 +115,7 @@ export default function WorkspaceView({
 
             {/* Dynamic Modules */}
             {currentModule === 'dashboard' && (
-              <DashboardOverview onSelectModule={mod => setCurrentModule(mod)} />
+              ['BRANCH_MANAGER', 'BRANCH_CO_ADMIN'].includes(activeRole) ? <BranchDashboard clubId={activeClub?.id} branchId={activeBranch?.id} onSelectModule={setCurrentModule} /> : <DashboardOverview onSelectModule={mod => setCurrentModule(mod)} />
             )}
 
             {(currentModule === 'members' ||

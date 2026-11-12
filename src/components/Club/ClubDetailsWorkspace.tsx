@@ -183,7 +183,7 @@ export default function ClubDetailsWorkspace({
       } else {
         setFeedback({
           type: 'success',
-          message: `Successfully assigned ${member.fullName} as Manager for ${branch.name}!`
+          message: res.accountCreated ? `Manager created. Sign in with ${member.email} and Password123!, then change the password.` : `Successfully assigned ${member.fullName} as Manager for ${branch.name}!`
         });
         setAssignBranchModal({ isOpen: false, branch: null });
         setBranchManagerSearchTerm('');
@@ -1441,6 +1441,17 @@ export default function ClubDetailsWorkspace({
               </button>
             </div>
 
+            <form className="space-y-2" onSubmit={e => {
+              e.preventDefault();
+              const data = new FormData(e.currentTarget);
+              handleAssignBranchManager({ id: '', email: String(data.get('managerEmail')), fullName: String(data.get('managerName')) });
+            }}>
+              <label className="block text-sm font-bold">Create and assign branch manager</label>
+              <input name="managerName" required placeholder="Full name" className="w-full border rounded-xl p-2" />
+              <input name="managerEmail" type="email" required placeholder="Email address" className="w-full border rounded-xl p-2" />
+              <p className="text-xs text-slate-500">New accounts sign in with Password123! and change it after login. Existing accounts keep their password.</p>
+              <button disabled={assigningBranchManager} className="bg-sky-600 text-white rounded-xl px-4 py-2">Create / Assign Manager</button>
+            </form>
             {/* Search Input */}
             <div className="relative">
               <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />

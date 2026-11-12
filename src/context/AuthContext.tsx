@@ -149,9 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           supabase
             .from('user_roles')
             .select('role, club_id, branch_id')
-            .eq('user_id', user.id)
-            .limit(1)
-            .maybeSingle(),
+            .eq('user_id', user.id),
           supabase
             .from('profiles')
             .select('*')
@@ -159,7 +157,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             .maybeSingle()
         ]);
 
-        const userRole = userRoleRes.data;
+        const rolePriority = ['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'CLUB_CO_ADMIN', 'BRANCH_MANAGER', 'BRANCH_CO_ADMIN'];
+        const assignments = [...(userRoleRes.data || [])].sort((a, b) => {
+          const rank = (role: string) => { const i = rolePriority.indexOf(role); return i < 0 ? rolePriority.length : i; };
+          return rank(a.role) - rank(b.role);
+        });
+        const userRole = assignments[0];
         const profile = profileRes.data;
 
         const dbRole = userRole?.role || 'MEMBER';
@@ -188,7 +191,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           photoVisibility: (profile?.photo_visibility as any) || 'CLUB_ONLY',
           otherInfo: profile?.other_info || '',
           status: 'Active',
-          roles: [{ role, clubId: assignedClubId, branchId: assignedBranchId, grantedAt: new Date().toISOString() }],
+          roles: assignments.length ? assignments.map(r => ({ role: r.role as SystemRole, clubId: r.club_id || undefined, branchId: r.branch_id || undefined, grantedAt: new Date().toISOString() })) : [{ role, clubId: assignedClubId, branchId: assignedBranchId, grantedAt: new Date().toISOString() }],
           activeRole: role,
           activeClubId: assignedClubId,
           activeBranchId: assignedBranchId,
@@ -277,7 +280,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (permittedBranchIds.size > 0) {
       return clubBranches.filter(b => permittedBranchIds.has(b.id));
     }
-    return clubBranches;
+    return ['BRANCH_MANAGER', 'BRANCH_CO_ADMIN'].includes(activeRole) ? [] : clubBranches;
   }, [currentUser, activeClubId, activeRole, allKnownBranches]);
 
   useEffect(() => {
@@ -288,7 +291,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (authorizedBranches.length > 0) {
-      if (activeBranchId === '__ALL__') return;
+      if (activeBranchId === '__ALL__' && !['BRANCH_MANAGER', 'BRANCH_CO_ADMIN'].includes(activeRole)) return;
       if (!activeBranchId || !authorizedBranches.some(b => b.id === activeBranchId)) {
         setActiveBranchId(authorizedBranches[0].id);
       }
@@ -343,6 +346,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const switchBranch = (branchId: string) => {
     if (!branchId || branchId === '__ALL__') {
+      if (['BRANCH_MANAGER', 'BRANCH_CO_ADMIN'].includes(activeRole)) return;
       setActiveBranchId('__ALL__');
       return;
     }
@@ -357,14 +361,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const canAccessClub = (clubId: string): boolean => {
     if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER'].includes(activeRole)) return true;
-    if (clubId.startsWith('Scms-')) return true;
+
     return authorizedClubs.some(c => c.id === clubId) || currentUser?.roles?.some(r => r.clubId === clubId) || false;
   };
 
   const canAccessBranch = (branchId: string): boolean => {
-    if (!branchId || branchId === '__ALL__') return true;
+    if (!branchId || branchId === '__ALL__') return !['BRANCH_MANAGER', 'BRANCH_CO_ADMIN'].includes(activeRole);
     if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) return true;
-    if (branchId.startsWith('Scms-')) return true;
+
     return authorizedBranches.some(b => b.id === branchId) || currentUser?.roles?.some(r => r.branchId === branchId) || false;
   };
 
