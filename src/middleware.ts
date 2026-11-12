@@ -44,13 +44,15 @@ export async function middleware(request: NextRequest) {
     if (!elevated && manager) {
       const clubId = request.nextUrl.searchParams.get('club_id');
       const branchId = request.nextUrl.searchParams.get('branch_id');
-      if ((clubId && clubId !== manager.club_id) || (branchId && branchId !== manager.branch_id)) {
+      const matchedAssignment = roles?.find(r => ['BRANCH_MANAGER', 'BRANCH_CO_ADMIN'].includes(r.role)
+        && (!clubId || clubId === r.club_id) && (!branchId || branchId === r.branch_id));
+      if (!matchedAssignment) {
         return new NextResponse('Forbidden: assigned branch only', { status: 403 });
       }
       if (pathname !== '/dashboard/branch' && pathname !== '/dashboard/profile') {
         const url = new URL('/dashboard/branch', request.url);
-        if (manager.club_id) url.searchParams.set('club_id', manager.club_id);
-        if (manager.branch_id) url.searchParams.set('branch_id', manager.branch_id);
+        if (matchedAssignment.club_id) url.searchParams.set('club_id', matchedAssignment.club_id);
+        if (matchedAssignment.branch_id) url.searchParams.set('branch_id', matchedAssignment.branch_id);
         return NextResponse.redirect(url);
       }
     }

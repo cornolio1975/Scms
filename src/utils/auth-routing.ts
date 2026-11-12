@@ -9,6 +9,10 @@ export async function getDashboardRouteForUser(): Promise<{ route: string; onboa
     return { route: '/login', onboardingRequired: false };
   }
 
+  if (user.user_metadata?.temp_password) {
+    return { route: '/update-password', onboardingRequired: false };
+  }
+
   // Fetch or automatically initialize user profile
   let { data: profile } = await supabase
     .from('profiles')
@@ -60,6 +64,7 @@ export async function getDashboardRouteForUser(): Promise<{ route: string; onboa
     'CLUB_ADMIN',
     'CLUB_CO_ADMIN',
     'BRANCH_MANAGER',
+    'BRANCH_CO_ADMIN',
     'COACH',
     'STAFF',
     'VOLUNTEER',
@@ -165,6 +170,7 @@ export async function getDashboardRouteForUser(): Promise<{ route: string; onboa
       destination = `/dashboard/club${queryString}`;
       break;
     case 'BRANCH_MANAGER':
+    case 'BRANCH_CO_ADMIN':
       destination = `/dashboard/branch${queryString}`;
       break;
     case 'COACH':

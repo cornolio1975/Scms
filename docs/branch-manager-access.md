@@ -26,6 +26,17 @@ URL. Platform KPI queries now require a platform administrator.
   failed assignments before release. A transaction-backed RPC is recommended
   before treating assignment as atomic under concurrent administrative changes.
 
-Local verification includes seven server scope tests, TypeScript and the Next
+Local verification includes fourteen server scope and account-provisioning tests, TypeScript and the Next
 production build. No live credentials were available during development, so no
 live account creation, SQL application, or deployed browser test is claimed.
+
+## Hosting preflight (12 November 2026)
+
+SCMS is an enabled Hostinger Node.js website at scms.spsportdatasolution.org,
+username u286655953. It runs Node 22 / Next.js and automatically deploys main.
+The current successful build is b19436d8b00fa5fc72f1279fef32866275c409bd.
+SUPABASE_SERVICE_ROLE_KEY and the required public Supabase variables are set
+(values were not retrieved). The connected Supabase account lists only Command
+Center and TV Tuisyen Madani, so SCMS migration application, RLS inspection and
+live sign-in verification remain blocked. Do not merge this release into main
+until the SCMS database checks above are complete, because main auto-deploys.

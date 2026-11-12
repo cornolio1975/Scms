@@ -273,7 +273,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const permittedBranchIds = new Set(
       currentUser.roles
-        .filter(r => r.clubId === activeClubId && r.branchId)
+        .filter(r => r.clubId === activeClubId && r.branchId && (!['BRANCH_MANAGER', 'BRANCH_CO_ADMIN'].includes(activeRole) || r.role === activeRole))
         .map(r => r.branchId!)
     );
 
@@ -333,7 +333,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const switchClub = (clubId: string) => {
     if (canAccessClub(clubId)) {
       setActiveClubId(clubId);
-      const branches = allKnownBranches.filter(b => b.clubId === clubId);
+      const branches = allKnownBranches.filter(b => b.clubId === clubId && (!['BRANCH_MANAGER', 'BRANCH_CO_ADMIN'].includes(activeRole) || currentUser?.roles.some(r => r.role === activeRole && r.clubId === clubId && r.branchId === b.id)));
       if (branches.length > 0) {
         if (activeBranchId !== '__ALL__') {
           setActiveBranchId(branches[0].id);
@@ -369,7 +369,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!branchId || branchId === '__ALL__') return !['BRANCH_MANAGER', 'BRANCH_CO_ADMIN'].includes(activeRole);
     if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole)) return true;
 
-    return authorizedBranches.some(b => b.id === branchId) || currentUser?.roles?.some(r => r.branchId === branchId) || false;
+    return authorizedBranches.some(b => b.id === branchId);
   };
 
   const updateProfile = async (dataOrName: Partial<User> | string, phoneParam?: string): Promise<boolean> => {
