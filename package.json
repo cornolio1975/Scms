@@ -9,7 +9,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "package:hostinger": "node scripts/package-hostinger.mjs",
-    "test:discipline": "vitest run src/lib/integrations/athlete-discipline.test.ts"
+    "test:discipline": "vitest run src/lib/integrations/athlete-discipline.test.ts",
+    "test:athletes": "vitest run src/lib/excel/athlete-import-export.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

@@ -308,7 +308,68 @@ export default function MembersDirectory({
       console.error('Error fetching mock members:', err);
     }
 
-    // 4. Supabase integration
+    // 4. Authoritative Supabase members table + user_roles reconciliation
+    if (!currentClubId.startsWith('Scms-')) {
+      try {
+        const params = new URLSearchParams({ clubId: currentClubId });
+        if (currentBranchId && currentBranchId !== '__ALL__') {
+          params.set('branchId', currentBranchId);
+        }
+        const membersRes = await fetch(`/api/admin/members?${params.toString()}`);
+        if (membersRes.ok) {
+          const membersJson = await membersRes.json();
+          const dbMembers: any[] = membersJson.members || [];
+          dbMembers.forEach((m: any) => {
+            const sport = m.sport_data || {};
+            const emergency = m.emergency_contact || {};
+            const beltRank =
+              sport.beltRank || sport.rankName || sport.kyu || 'White Belt / Novice';
+            uniqueMembersMap.set(m.id, {
+              id: m.id,
+              memberNo: m.member_no,
+              profileId: m.profile_id || undefined,
+              clubId: m.club_id,
+              branchId: m.branch_id || undefined,
+              fullName: m.full_name,
+              gender: m.gender || 'Male',
+              dob: m.date_of_birth || undefined,
+              idType: m.id_type || undefined,
+              icPassport: m.ic_passport || undefined,
+              nationality: m.nationality || 'Malaysian',
+              email: m.email || undefined,
+              phone: m.phone || undefined,
+              address: m.address_line_1 || undefined,
+              postcode: m.postcode || undefined,
+              city: m.city || undefined,
+              state: m.state || undefined,
+              country: m.country || undefined,
+              guardianName: m.guardian_name || emergency.name || undefined,
+              guardianPhone: m.guardian_phone || emergency.phone || undefined,
+              emergencyContactName: emergency.name || m.guardian_name || undefined,
+              emergencyContactPhone: emergency.phone || m.guardian_phone || undefined,
+              status:
+                m.status && String(m.status).toUpperCase() === 'INACTIVE'
+                  ? 'Inactive'
+                  : 'Active',
+              notes: m.notes || m.medical_notes || undefined,
+              medicalNotes: m.medical_notes || m.notes || undefined,
+              assignedCoachName:
+                sport.assignedCoachName || sport.instructor || 'Club Coach',
+              sportData: {
+                ...sport,
+                beltRank,
+              },
+              isAthlete: true,
+              roles: ['MEMBER', 'ATHLETE'],
+              sourceTable: 'members',
+            });
+          });
+        }
+      } catch (err) {
+        console.error('Error fetching authoritative members:', err);
+      }
+    }
+
     try {
       let query = supabase
         .from('user_roles')
@@ -337,7 +398,7 @@ export default function MembersDirectory({
         data.forEach((r: any) => {
           if (r.profiles) {
             const existing = Array.from(uniqueMembersMap.values()).find(
-              m => m.id === r.profiles.id || (r.profiles.email && m.email && m.email.toLowerCase() === r.profiles.email.toLowerCase())
+              m => m.id === r.profiles.id || m.profileId === r.profiles.id
             );
             if (existing) {
               if (!existing.roles.includes(r.role)) {
@@ -355,6 +416,7 @@ export default function MembersDirectory({
                 status: r.profiles.status || 'Active',
                 branchId: r.branch_id,
                 roles: [r.role],
+                sourceTable: 'profiles',
               });
             }
           }
@@ -948,9 +1010,9 @@ export default function MembersDirectory({
       competitionEvents,
     };
 
-    // 1. Optimistic UI update
+    // 1. Optimistic UI update (strictly by member ID)
     setMembers(prev => prev.map(m => {
-      if (m.id === editingMember.id || (editingMember.email && m.email && m.email.toLowerCase() === editingMember.email.toLowerCase())) {
+      if (m.id === editingMember.id) {
         return {
           ...m,
           fullName,
@@ -1050,13 +1112,35 @@ export default function MembersDirectory({
 
       await fetchParentsAndGuardians();
     } else {
-      // 3. Persist to Supabase
+      // 3. Persist to Supabase authoritative members table (or profiles if profile-only)
       try {
-        await supabase.from('profiles').update({
-          full_name: fullName,
-          phone,
-          address,
-        }).eq('id', editingMember.id);
+        if (editingMember.sourceTable === 'profiles') {
+          await supabase.from('profiles').update({
+            full_name: fullName,
+            phone,
+          }).eq('id', editingMember.id);
+        } else {
+          await fetch('/api/admin/members', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              memberId: editingMember.id,
+              clubId: currentClubId,
+              branchId: branchIdToSave || null,
+              fullName,
+              email,
+              phone,
+              icPassport,
+              addressLine1: address,
+              gender,
+              dob,
+              nationality,
+              medicalNotes,
+              assignedCoachName,
+              sportData: updatedSportData,
+            }),
+          });
+        }
       } catch (err) {
         console.error(err);
       }
@@ -1069,9 +1153,8 @@ export default function MembersDirectory({
   const handleDeleteMember = async (memberId: string) => {
     if (!confirm('Are you sure you want to delete this member from the roster?')) return;
     
-    // 1. Optimistic UI update
-    const targetMember = members.find(m => m.id === memberId);
-    setMembers(prev => prev.filter(m => m.id !== memberId && (!targetMember?.email || m.email?.toLowerCase() !== targetMember.email.toLowerCase())));
+    // 1. Optimistic UI update (match strictly by member ID, never by shared email)
+    setMembers(prev => prev.filter(m => m.id !== memberId));
 
     if (currentClubId?.startsWith('Scms-')) {
       const { store } = await import('@/lib/store');
@@ -1081,8 +1164,10 @@ export default function MembersDirectory({
     }
 
     try {
-      await supabase.from('club_members').delete().eq('user_id', memberId);
-      await supabase.from('user_role_assignments').delete().eq('user_id', memberId);
+      await fetch(
+        `/api/admin/members?memberId=${encodeURIComponent(memberId)}&clubId=${encodeURIComponent(currentClubId || '')}`,
+        { method: 'DELETE' }
+      );
       await fetchMembers();
     } catch (err) {
       console.error('Error deleting member:', err);
@@ -1925,6 +2010,8 @@ export default function MembersDirectory({
           <DataManagementCenter
             clubId={currentClubId}
             branchId={currentBranchId === '__ALL__' ? undefined : currentBranchId}
+            initialSearchFilter={searchQuery}
+            onImportSuccess={fetchMembers}
           />
         </div>
       )}
