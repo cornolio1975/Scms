@@ -12,6 +12,7 @@ import {
   KarateTechIntegrationService,
   KarateTechTournament
 } from '@/lib/integrations/karateTech';
+import type { PlatformKpis } from '@/lib/platform-kpis';
 import { getPlatformKpisAction } from '@/app/actions/multi-club';
 import {
   Building2,
@@ -42,7 +43,11 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
   const [loadingTournaments, setLoadingTournaments] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string>('');
-  const [dbKpis, setDbKpis] = useState<any>(null);
+  const [dbKpis, setDbKpis] = useState<PlatformKpis | null>(null);
+  const [metricsError, setMetricsError] = useState('');
+  const [metricsUpdatedAt, setMetricsUpdatedAt] = useState('');
+  const isSuperAdmin = ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole);
+  const [metricsRefresh, setMetricsRefresh] = useState(0);
 
   const syncTournaments = async () => {
     setIsSyncing(true);
@@ -60,25 +65,51 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
 
   useEffect(() => {
     syncTournaments();
-    // Fetch live DB KPIs
-    getPlatformKpisAction().then(res => {
-      if (res.success && res.kpis) setDbKpis(res.kpis);
-    }).catch(console.warn);
-
-    // Auto-sync poll every 30 seconds to keep live data fresh
-    const interval = setInterval(() => {
-      syncTournaments();
-      getPlatformKpisAction().then(res => {
-        if (res.success && res.kpis) setDbKpis(res.kpis);
-      }).catch(console.warn);
-    }, 30000);
+    const interval = setInterval(syncTournaments, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  const isSuperAdmin = ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole);
+  useEffect(() => {
+    setDbKpis(null);
+    setMetricsError('');
+    setMetricsUpdatedAt('');
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    let inFlight = false;
+    const refresh = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const result = await getPlatformKpisAction();
+        if (cancelled) return;
+        if (!result.success || !result.kpis) throw new Error(result.error || 'Unable to refresh database totals.');
+        setDbKpis(result.kpis);
+        setMetricsError('');
+        setMetricsUpdatedAt(new Date().toLocaleTimeString());
+      } catch {
+        if (!cancelled) {
+          setDbKpis(null);
+          setMetricsError('Database totals could not be refreshed. Please retry.');
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+    void refresh();
+    const onVisible = () => { if (document.visibilityState === 'visible') void refresh(); };
+    const interval = setInterval(refresh, 30000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [isSuperAdmin, currentUser?.id, metricsRefresh]);
+
   const isClubAdmin = ['CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole);
 
-  const clubs = store.getClubs();
   const branches = store.getBranches(activeClub?.id);
   const members = store.getMembers(activeClub?.id, activeBranch?.id);
   const athletes = members.filter(m => m.isAthlete);
@@ -86,7 +117,7 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
   const invoices = store.invoices.filter(i => (activeClub ? i.clubId === activeClub.id : true));
   const totalOutstanding = invoices.reduce((acc, i) => acc + i.balanceDue, 0);
   const openTasks = store.tasks.filter(t => t.status === 'Open');
-  const pendingApprovals = store.approvals.filter(a => a.status === 'Pending');
+  const metric = (key: keyof PlatformKpis) => dbKpis?.[key] ?? (metricsError ? 'Unavailable' : '—');
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -117,7 +148,7 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
               className="px-4 py-2 rounded-xl bg-white text-[#0284C7] font-bold text-xs hover:bg-sky-50 shadow-xs transition-colors flex items-center space-x-1.5 touch-target"
             >
               <ShieldCheck size={14} />
-              <span>Pending Approvals ({pendingApprovals.length})</span>
+              <span>Pending Approvals ({metric('pendingApprovals')})</span>
             </button>
           )}
 
@@ -161,6 +192,17 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
         </div>
       </div>
 
+      {isSuperAdmin && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs" role="status">
+          <span className={metricsError ? 'text-rose-600' : 'text-slate-500'}>
+            {metricsError || (metricsUpdatedAt ? `Database totals updated at ${metricsUpdatedAt}` : 'Loading database totals…')}
+          </span>
+          <button onClick={() => setMetricsRefresh(value => value + 1)} className="text-sky-700 font-semibold touch-target">
+            Refresh totals
+          </button>
+        </div>
+      )}
+
       {/* 2. OPERATIONAL KPI METRIC CARDS (Sections 24, 29 & 32) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {isSuperAdmin ? (
@@ -170,9 +212,9 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
                 <span className="text-[10px] font-bold uppercase tracking-wider">Total Clubs</span>
                 <Building2 size={18} className="text-[#0284C7]" />
               </div>
-              <span className="text-2xl sm:text-3xl font-black text-slate-900 block">{clubs.length}</span>
+              <span className="text-2xl sm:text-3xl font-black text-slate-900 block">{metric('totalClubs')}</span>
               <span className="text-[11px] text-emerald-600 font-semibold block">
-                {clubs.filter(c => c.status === 'Active').length} Active • 1 Pending
+                {metric('activeClubs')} Active • {metric('pendingApprovalClubs')} Pending
               </span>
             </div>
 
@@ -181,7 +223,7 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
                 <span className="text-[10px] font-bold uppercase tracking-wider">Total Branches</span>
                 <Building2 size={18} className="text-indigo-600" />
               </div>
-              <span className="text-2xl sm:text-3xl font-black text-slate-900 block">{store.branches.length}</span>
+              <span className="text-2xl sm:text-3xl font-black text-slate-900 block">{metric('totalBranches')}</span>
               <span className="text-[11px] text-slate-500 font-medium block">Across all states</span>
             </div>
 
@@ -200,7 +242,7 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
                 <ShieldCheck size={18} className="text-rose-500" />
               </div>
               <span className="text-2xl sm:text-3xl font-black text-slate-900 block">
-                {pendingApprovals.length}
+                {metric('pendingApprovals')}
               </span>
               <span className="text-[11px] text-amber-600 font-semibold block">Requires Review</span>
             </div>

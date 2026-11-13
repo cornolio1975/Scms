@@ -2,6 +2,7 @@
 
 import { createClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
+import { readPlatformKpis } from '@/lib/platform-kpis';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 
 function getAdminClient() {
@@ -43,95 +44,14 @@ export async function getPlatformKpisAction() {
       return { success: false, error: 'Platform metrics are restricted to platform administrators' };
     }
     const adminClient = getAdminClient();
-    const { store } = await import('@/lib/store');
-    const storeClubs = store.getClubs();
-    const storeBranches = store.getBranches();
-    const storeUsers = store.users;
-    const storeApprovals = store.approvals;
-
-    let dbClubs: any[] = [];
-    let dbBranchesCount = 0;
-    let dbUsersCount = 0;
-    let dbPendingApprovals = 0;
-    let syncLinks: any[] = [];
-    let pendingJobs = 0;
-
-    if (adminClient) {
-      try {
-        const [cRes, bRes, uRes, aRes, sRes, jRes] = await Promise.all([
-          adminClient.from('clubs').select('id, name, status, approval_status'),
-          adminClient.from('club_branches').select('id', { count: 'exact', head: true }).neq('status', 'Archived'),
-          adminClient.from('profiles').select('id', { count: 'exact', head: true }),
-          adminClient.from('approval_requests').select('id', { count: 'exact', head: true }).eq('status', 'PENDING_APPROVAL'),
-          adminClient.from('scms_karatetech_participant_links').select('sync_status'),
-          adminClient.from('sync_jobs').select('id', { count: 'exact', head: true }).in('status', ['PENDING', 'PROCESSING']),
-        ]);
-        if (cRes.data) dbClubs = cRes.data;
-        if (bRes.count !== null) dbBranchesCount = bRes.count || 0;
-        if (uRes.count !== null) dbUsersCount = uRes.count || 0;
-        if (aRes.count !== null) dbPendingApprovals = aRes.count || 0;
-        if (sRes.data) syncLinks = sRes.data;
-        if (jRes.count !== null) pendingJobs = jRes.count || 0;
-      } catch (dbErr) {
-        console.warn('DB KPIs fetch warning:', dbErr);
-      }
+    // Never substitute browser/sample records for persisted platform metrics.
+    // A publishable client cannot guarantee platform-wide counts under RLS.
+    if (!adminClient || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return { success: false, error: 'Platform database metrics are unavailable: server configuration is incomplete.' };
     }
+    const kpis = await readPlatformKpis(adminClient);
+    return { success: true, kpis };
 
-    // Merge unified clubs
-    const clubMap = new Map<string, any>();
-    storeClubs.forEach(c => clubMap.set(c.id, {
-      id: c.id,
-      name: c.name,
-      status: c.status,
-      approval_status: (c as any).approvalStatus || (c.status === 'Active' ? 'APPROVED' : 'PENDING')
-    }));
-    dbClubs.forEach(c => {
-      // Don't overwrite enriched store clubs if matching name
-      const existing = Array.from(clubMap.values()).find(sc => sc.name.toLowerCase() === c.name.toLowerCase());
-      if (!existing) {
-        clubMap.set(c.id, c);
-      }
-    });
-
-    const unifiedClubs = Array.from(clubMap.values());
-    const totalClubs = unifiedClubs.length;
-    const activeClubs = unifiedClubs.filter(c => c.status === 'Active' || c.status === 'ACTIVE').length;
-    const pendingApprovalClubs = unifiedClubs.filter(c =>
-      c.approval_status === 'PENDING' ||
-      c.status === 'Pending Approval' ||
-      c.status === 'Submitted'
-    ).length;
-    const suspendedClubs = unifiedClubs.filter(c => c.status === 'Suspended' || c.status === 'SUSPENDED').length;
-
-    // Branches count
-    const totalBranches = Math.max(dbBranchesCount, storeBranches.length);
-    // Users count
-    const totalUsers = Math.max(dbUsersCount, storeUsers.length + store.getMembers().length);
-    // Pending approvals count
-    const storePendingApps = storeApprovals.filter(a => a.status === 'Pending').length;
-    const pendingApprovals = Math.max(dbPendingApprovals, storePendingApps);
-
-    // KarateTech metrics
-    const totalSyncedParticipants = syncLinks.filter(l => l.sync_status === 'SYNCED').length || 142;
-    const totalConflicts = syncLinks.filter(l => l.sync_status === 'CONFLICT').length;
-    const totalSyncErrors = syncLinks.filter(l => l.sync_status === 'FAILED' || l.sync_status === 'ERROR').length;
-
-    return {
-      success: true,
-      kpis: {
-        totalClubs,
-        activeClubs,
-        pendingApprovalClubs,
-        suspendedClubs,
-        totalBranches,
-        totalUsers,
-        pendingApprovals,
-        totalSyncedParticipants,
-        totalConflicts,
-        totalSyncErrors,
-        pendingSyncJobs: pendingJobs
-      }
-    };
   } catch (error: any) {
     console.error('Error fetching platform KPIs:', error);
     return {
