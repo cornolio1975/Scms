@@ -102,8 +102,13 @@ export async function searchPlatformAction(params: {
         }
       }
     } else {
-      // In development / mock mode, if active club passed or default to superadmin
-      userRole = 'SUPERADMIN';
+      // Unauthenticated callers never receive search results.
+      return { success: false, error: 'Unauthorized', results: { ...emptyResults }, totalCount: 0 } as any;
+    }
+
+    if (userRole === 'BRANCH_MANAGER' && (!assignedClubId || !assignedBranchId)) {
+      // Fail closed: a branch manager without a valid assignment sees nothing.
+      return { success: true, results: { ...emptyResults }, totalCount: 0 } as any;
     }
 
     // 2. Strict Boundary Enforcement
@@ -116,12 +121,16 @@ export async function searchPlatformAction(params: {
       effectiveBranchId = params.branchId || undefined;
     } else if (userRole === 'CLUB_ADMIN') {
       // Club Admin is STRICTLY locked to their assigned club
-      effectiveClubId = assignedClubId || params.clubId;
+      effectiveClubId = assignedClubId || '__none__';
       effectiveBranchId = params.branchId || undefined;
     } else if (userRole === 'BRANCH_MANAGER') {
       // Branch Manager is STRICTLY locked to their assigned branch
-      effectiveClubId = assignedClubId || params.clubId;
-      effectiveBranchId = assignedBranchId || params.branchId;
+      effectiveClubId = assignedClubId;
+      effectiveBranchId = assignedBranchId;
+    } else {
+      // Any other role is limited to its own club/branch and never widened by request parameters.
+      effectiveClubId = assignedClubId || '__none__';
+      effectiveBranchId = assignedBranchId;
     }
 
     const results = { ...emptyResults };

@@ -254,7 +254,7 @@ export async function updateBranchProfileAction(formData: FormData) {
     (r: any) => (r.role === 'CLUB_ADMIN' || r.role === 'CLUB_CO_ADMIN') && r.club_id === existingBranch.club_id
   );
   const isBranchManagerForThis = userRoles?.some(
-    (r: any) => (r.role === 'BRANCH_MANAGER' || r.role === 'COACH') && (r.branch_id === branchId || existingBranch.manager_id === user.id)
+    (r: any) => (r.role === 'BRANCH_MANAGER' || r.role === 'BRANCH_CO_ADMIN') && r.branch_id === branchId && r.club_id === existingBranch.club_id
   );
 
   if (!isSuperAdmin && !isClubAdminForThis && !isBranchManagerForThis) {
@@ -275,7 +275,7 @@ export async function updateBranchProfileAction(formData: FormData) {
     phone,
     email,
     operating_hours: operatingHours,
-    status,
+    status: (isSuperAdmin || isClubAdminForThis) ? status : existingBranch.status,
     updated_at: new Date().toISOString()
   };
 

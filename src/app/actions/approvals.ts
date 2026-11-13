@@ -58,8 +58,23 @@ export async function processApprovalRequest(requestId: string, status: 'APPROVE
 
   if (reqError || !request) return { error: 'Request not found' };
 
-  // 2. Verify admin rights via Server (bypassing RLS temporarily to do complex checks, or relying on RLS)
-  // RLS already ensures only superadmins or club_admins for this club can UPDATE the request.
+  // 2. Verify admin rights on the server from trusted database roles (in addition to RLS).
+  const { data: callerRoles, error: callerRolesError } = await supabase
+    .from('user_roles')
+    .select('role, club_id')
+    .eq('user_id', user.id);
+  if (callerRolesError) return { error: 'Unable to verify permissions.' };
+  const canProcess = (callerRoles || []).some(
+    (r: any) =>
+      ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(r.role) ||
+      (['CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(r.role) && r.club_id === request.club_id)
+  );
+  if (!canProcess) return { error: 'Forbidden: you cannot process this request.' };
+  // Club admins may not grant platform-level roles.
+  const isPlatform = (callerRoles || []).some((r: any) => ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(r.role));
+  if (!isPlatform && ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(request.requested_role)) {
+    return { error: 'Forbidden: platform roles cannot be granted by a club admin.' };
+  }
   
   const { error: updateError } = await supabase
     .from('approval_requests')

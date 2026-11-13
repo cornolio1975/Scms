@@ -12,6 +12,25 @@ function getAdminClient() {
 }
 
 /**
+ * Server-side authorization for privileged club actions. Roles are read from the database for the
+ * authenticated session; client-supplied identity, mock-store roles and browser state are never trusted.
+ * Platform admins pass for any club; club admins pass only for their own club (when allowClubAdmin is set).
+ */
+async function authorizeClubAction(opts: { clubId?: string; allowClubAdmin?: boolean } = {}): Promise<{ ok: true; userId: string } | { ok: false; error: string }> {
+  const session = await createClient();
+  const { data: { user } } = await session.auth.getUser();
+  if (!user) return { ok: false, error: 'Unauthorized: please sign in.' };
+  const db = getAdminClient() || session;
+  const { data: roles, error } = await db.from('user_roles').select('role, club_id').eq('user_id', user.id);
+  if (error) return { ok: false, error: 'Unable to verify permissions.' };
+  if ((roles || []).some((r: any) => ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(r.role))) return { ok: true, userId: user.id };
+  if (opts.allowClubAdmin && opts.clubId && (roles || []).some((r: any) => ['CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(r.role) && r.club_id === opts.clubId)) {
+    return { ok: true, userId: user.id };
+  }
+  return { ok: false, error: 'Forbidden: you do not have permission for this action.' };
+}
+
+/**
  * Platform KPIs for Superadmin Dashboard
  */
 export async function getPlatformKpisAction() {
@@ -136,6 +155,8 @@ export async function getClubsListAction(params: {
   limit?: number;
 }) {
   try {
+    const authz = await authorizeClubAction();
+    if (!authz.ok) return { success: false, error: authz.error } as any;
     const adminClient = getAdminClient();
     const { store } = await import('@/lib/store');
     const storeClubs = store.getClubs();
@@ -314,6 +335,8 @@ export async function getClubsListAction(params: {
  */
 export async function getClubDetailsAction(clubId: string) {
   try {
+    const authz = await authorizeClubAction({ clubId, allowClubAdmin: true });
+    if (!authz.ok) return { success: false, error: authz.error } as any;
     const adminClient = getAdminClient();
     const { store } = await import('@/lib/store');
 
@@ -515,6 +538,8 @@ export async function updateClubStatusAction(params: {
   reason?: string;
 }) {
   try {
+    const authz = await authorizeClubAction();
+    if (!authz.ok) return { success: false, error: authz.error } as any;
     const adminClient = getAdminClient();
     const effectiveApproval = params.approvalStatus || (params.status === 'Active' ? 'APPROVED' : params.status === 'Rejected' ? 'REJECTED' : 'PENDING');
 
@@ -779,6 +804,8 @@ export async function exportClubsCsvAction(filters?: {
   approvalStatus?: string;
 }) {
   try {
+    const authz = await authorizeClubAction();
+    if (!authz.ok) return { success: false, error: authz.error };
     const listRes = await getClubsListAction({
       search: filters?.search,
       status: filters?.status,
@@ -815,7 +842,7 @@ export async function exportClubsCsvAction(filters?: {
       return `"${str}"`;
     };
 
-    const rows = listRes.clubs.map(c => [
+    const rows = listRes.clubs.map((c: any) => [
       escapeCsv(c.id),
       escapeCsv(c.name),
       escapeCsv(c.display_name || c.name),
@@ -832,7 +859,7 @@ export async function exportClubsCsvAction(filters?: {
       escapeCsv(c.created_at ? new Date(c.created_at).toISOString().split('T')[0] : 'N/A')
     ]);
 
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const csvContent = [headers.join(','), ...rows.map((r: string[]) => r.join(','))].join('\n');
     return { success: true, csv: csvContent };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -844,6 +871,8 @@ export async function exportClubsCsvAction(filters?: {
  */
 export async function deleteClubAction(clubId: string, operatorName: string = 'SuperAdmin') {
   try {
+    const authz = await authorizeClubAction();
+    if (!authz.ok) return { success: false, error: authz.error };
     const adminClient = getAdminClient();
 
     // 1. Delete from in-memory / localStorage store
