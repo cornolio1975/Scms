@@ -16,20 +16,22 @@ export default function DashboardPage() {
         return;
       }
 
-      // 1. Try mock store
+      // 1. Primary: Use authoritative server route dispatcher for real Supabase users
       try {
-        const { resolveMockRole, mockRoleRoute } = await import('@/lib/mockRole');
-        const mockRole = resolveMockRole(user.email, user.user_metadata?.full_name);
-
-        if (mockRole) {
-          window.location.assign(mockRoleRoute(mockRole));
-          return;
+        const res = await fetch('/api/auth/route-dispatch', {
+          headers: { Accept: 'application/json' },
+        });
+        if (res.ok) {
+          const body = await res.json();
+          if (body?.destination) {
+            window.location.assign(body.destination);
+            return;
+          }
         }
       } catch (e) {
-        console.error('Mock routing failed', e);
+        console.error('Server route dispatch failed, falling back:', e);
       }
 
-      // 2. Fallback to server route dispatcher for real Supabase users
       window.location.assign('/api/auth/route-dispatch');
     }
 

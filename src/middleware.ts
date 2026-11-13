@@ -36,6 +36,10 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
 
+    if (user.app_metadata?.must_change_password || user.user_metadata?.temp_password) {
+      return NextResponse.redirect(new URL('/update-password', request.url))
+    }
+
     const { data: roles, error: rolesError } = await supabase.from('user_roles')
       .select('role,club_id,branch_id').eq('user_id', user.id);
     if (rolesError) return new NextResponse('Unable to verify access', { status: 503 });

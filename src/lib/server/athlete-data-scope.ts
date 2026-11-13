@@ -54,6 +54,16 @@ export interface ResolvedOperatorScope {
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const LEGACY_CLUB_ID_MAP: Record<string, string> = {
+  'scms-club-000001': '11111111-1111-1111-1111-111111111111',
+};
+
+const LEGACY_BRANCH_ID_MAP: Record<string, string> = {
+  'scms-club-000001-b001': '22222222-2222-2222-2222-222222222222',
+  'scms-club-000001-b002': '44444444-4444-4444-4444-444444444444',
+  'scms-club-000001-b003': '33333333-3333-3333-3333-333333333333',
+};
+
 /**
  * Resolves and strictly validates the caller's club and branch authorization using trusted
  * server-side user_roles records. Never trusts client-supplied role claims.
@@ -70,7 +80,8 @@ export async function resolveAuthorizedScope(params: {
     throw new ScopeAuthorizationError(401, 'UNAUTHENTICATED', 'Authentication required.');
   }
 
-  const cleanClubId = clubId ? clubId.trim() : '';
+  const rawClubTrimmed = clubId ? clubId.trim() : '';
+  const cleanClubId = LEGACY_CLUB_ID_MAP[rawClubTrimmed.toLowerCase()] || rawClubTrimmed;
   if (!cleanClubId || !UUID_REGEX.test(cleanClubId)) {
     throw new ScopeAuthorizationError(
       400,
@@ -80,8 +91,13 @@ export async function resolveAuthorizedScope(params: {
   }
 
   const rawBranchId = branchId ? branchId.trim() : '';
+  const mappedBranchId = LEGACY_BRANCH_ID_MAP[rawBranchId.toLowerCase()] || rawBranchId;
   const cleanBranchId =
-    rawBranchId && rawBranchId.toUpperCase() !== 'ALL' ? rawBranchId : null;
+    mappedBranchId &&
+    mappedBranchId.toUpperCase() !== 'ALL' &&
+    mappedBranchId !== '__ALL__'
+      ? mappedBranchId
+      : null;
 
   if (cleanBranchId && !UUID_REGEX.test(cleanBranchId)) {
     throw new ScopeAuthorizationError(

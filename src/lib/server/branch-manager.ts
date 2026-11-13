@@ -18,12 +18,18 @@ export async function assignManager(params: { clubId: string; branchId: string; 
   let userId = profile?.id;
   let accountCreated = false;
   if (!userId) {
-    const { data, error } = await admin.auth.admin.createUser({ email, password: 'Password123!', email_confirm: true, user_metadata: { full_name: params.managerName || email, temp_password: true } });
+    const { data, error } = await admin.auth.admin.createUser({ email, password: 'Password123!', email_confirm: true, user_metadata: { full_name: params.managerName || email, temp_password: true }, app_metadata: { must_change_password: true } });
     if (error || !data.user) throw new Error('Unable to create account. If this email already has an account, use its existing sign-in.');
     userId = data.user.id;
     accountCreated = true;
   }
   try {
+    if (typeof (admin as any).rpc === 'function') {
+      const rpc = await (admin as any).rpc('assign_branch_manager_atomic', { p_club_id: params.clubId, p_branch_id: params.branchId, p_new_manager_id: userId, p_manager_email: email, p_manager_name: params.managerName || email, p_actor_id: user.id, p_account_created: accountCreated });
+      if (!rpc.error) return { userId, accountCreated };
+      const missing = rpc.error.code === 'PGRST202' || rpc.error.code === '42883';
+      if (!missing) throw rpc.error;
+    }
     const { data: existing, error: readError } = await admin.from('user_roles').select('id').eq('user_id', userId).eq('club_id', params.clubId).eq('role', 'BRANCH_MANAGER').maybeSingle();
     if (readError) throw readError;
     const role = { user_id: userId, club_id: params.clubId, branch_id: params.branchId, role: 'BRANCH_MANAGER' };

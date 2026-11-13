@@ -1350,10 +1350,66 @@ export function validateAthleteWorkbook(
     }
 
     const rawAthleteId = cellToString(getCell('athlete_id'));
-    const rawClubId = cellToString(getCell('club_id'));
-    const rawClubName = cellToString(getCell('club_name'));
-    const rawBranchId = cellToString(getCell('branch_id'));
-    const rawBranchName = cellToString(getCell('branch_name'));
+    let rawClubId = cellToString(getCell('club_id'));
+    let rawClubName = cellToString(getCell('club_name'));
+    let rawBranchId = cellToString(getCell('branch_id'));
+    let rawBranchName = cellToString(getCell('branch_name'));
+
+    // Normalize legacy mock IDs if present in older templates
+    if (rawClubId.toLowerCase() === 'scms-club-000001') {
+      rawClubId = '11111111-1111-1111-1111-111111111111';
+    }
+    if (rawBranchId.toLowerCase() === 'scms-club-000001-b001') {
+      rawBranchId = '22222222-2222-2222-2222-222222222222';
+    } else if (rawBranchId.toLowerCase() === 'scms-club-000001-b002') {
+      rawBranchId = '44444444-4444-4444-4444-444444444444';
+    } else if (rawBranchId.toLowerCase() === 'scms-club-000001-b003') {
+      rawBranchId = '33333333-3333-3333-3333-333333333333';
+    }
+
+    // If the user uploaded an un-prefilled template after selecting the target Club in the UI,
+    // default blank club_id / club_name to the selected destination club when unambiguous.
+    if (!rawClubId && !rawClubName) {
+      rawClubId = targetClub.id;
+      rawClubName = targetClub.name;
+    } else if (!rawClubId && rawClubName) {
+      const lowerName = rawClubName.toLowerCase();
+      if (
+        lowerName === targetClub.name.toLowerCase() ||
+        (targetClub.shortName && lowerName === targetClub.shortName.toLowerCase()) ||
+        (targetClub.displayName && lowerName === targetClub.displayName.toLowerCase())
+      ) {
+        rawClubId = targetClub.id;
+      }
+    } else if (rawClubId && !rawClubName && rawClubId.toLowerCase() === targetClub.id.toLowerCase()) {
+      rawClubName = targetClub.name;
+    }
+
+    // If a specific targetBranch is selected in the UI and the row is for a new athlete (or existing athlete in targetBranch)
+    // with blank branch columns in an un-prefilled template, populate from targetBranch.
+    if (requireBranchScope && targetBranch && !rawBranchId && !rawBranchName) {
+      const existingCheck = rawAthleteId ? existingById.get(rawAthleteId.toLowerCase()) : undefined;
+      if (!existingCheck || (existingCheck.branch_id && existingCheck.branch_id.toLowerCase() === targetBranch.id.toLowerCase())) {
+        rawBranchId = targetBranch.id;
+        rawBranchName = targetBranch.name;
+      }
+    } else if (!rawBranchId && rawBranchName) {
+      // Allow matching a branch within targetClub by exact branch_name / displayName if branch_id was omitted
+      const lowerBranchName = rawBranchName.toLowerCase();
+      const matchedByName = Array.from(clubBranches.values()).find(
+        (b) =>
+          b.name.toLowerCase() === lowerBranchName ||
+          (b.displayName && b.displayName.toLowerCase() === lowerBranchName)
+      );
+      if (matchedByName) {
+        rawBranchId = matchedByName.id;
+      }
+    } else if (rawBranchId && !rawBranchName) {
+      const matchedById = branchById.get(rawBranchId.toLowerCase());
+      if (matchedById) {
+        rawBranchName = matchedById.name;
+      }
+    }
     const rawFullName = cellToString(getCell('full_name'));
     const rawIdType = cellToString(getCell('id_type'));
     const rawIdNumber = cellToString(getCell('id_number'));

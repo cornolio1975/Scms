@@ -26,20 +26,26 @@ export default function UpdatePassword() {
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.updateUser({
-      password,
-      data: { temp_password: null }, // Remove the flag
-    });
-
-    if (error) {
-      setError(error.message);
+    try {
+      const res = await fetch('/api/auth/change-temporary-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, confirmPassword }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.error || 'Unable to update password');
+        setLoading(false);
+        return;
+      }
+      // Refresh the session so the cleared temporary-password flags take effect.
+      await supabase.auth.refreshSession();
+      window.location.assign('/api/auth/route-dispatch');
+    } catch {
+      setError('Network error. Please try again.');
       setLoading(false);
-    } else {
-      // Password updated, redirect to dashboard
-      router.push('/dashboard');
     }
   };
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
@@ -47,7 +53,7 @@ export default function UpdatePassword() {
           Update Your Password
         </h2>
         <p className="mt-2 text-center text-sm text-slate-600">
-          You are using a temporary password. Please set a new password to continue.
+          You are using a temporary password. Please change your password to continue.
         </p>
       </div>
 

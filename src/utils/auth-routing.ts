@@ -9,7 +9,7 @@ export async function getDashboardRouteForUser(): Promise<{ route: string; onboa
     return { route: '/login', onboardingRequired: false };
   }
 
-  if (user.user_metadata?.temp_password) {
+  if (user.app_metadata?.must_change_password || user.user_metadata?.temp_password) {
     return { route: '/update-password', onboardingRequired: false };
   }
 

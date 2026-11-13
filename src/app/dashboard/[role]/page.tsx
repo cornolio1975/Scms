@@ -29,14 +29,24 @@ export default async function DashboardRolePage(props: any) {
   if (!profile || profile.status === 'PENDING') redirect('/pending-approval');
   if (profile.status === 'INACTIVE' || profile.status === 'SUSPENDED') redirect('/account-suspended');
 
-  // We need to verify they have the role they are trying to access, 
-  // AND in the context (club_id, branch_id) they requested.
-  let query = supabase.from('user_roles').select('role, club_id, branch_id').eq('user_id', user.id);
-  
-  if (clubId && !clubId.startsWith('Scms-')) query = query.eq('club_id', clubId);
-  if (branchId && !branchId.startsWith('Scms-')) query = query.eq('branch_id', branchId);
+  const LEGACY_CLUB_MAP: Record<string, string> = {
+    'Scms-CLUB-000001': '11111111-1111-1111-1111-111111111111',
+  };
+  const LEGACY_BRANCH_MAP: Record<string, string> = {
+    'Scms-CLUB-000001-B001': '22222222-2222-2222-2222-222222222222',
+    'Scms-CLUB-000001-B002': '44444444-4444-4444-4444-444444444444',
+    'Scms-CLUB-000001-B003': '33333333-3333-3333-3333-333333333333',
+  };
 
-  const { data: userRoles } = await query;
+  const normalizedClubId = clubId ? (LEGACY_CLUB_MAP[clubId] || clubId) : undefined;
+  const normalizedBranchId = branchId ? (LEGACY_BRANCH_MAP[branchId] || branchId) : undefined;
+
+  // Fetch all roles assigned to this user and validate in memory so global roles (club_id=null)
+  // and club-wide roles (branch_id=null) are not excluded by strict equality filters.
+  const { data: userRoles } = await supabase
+    .from('user_roles')
+    .select('role, club_id, branch_id')
+    .eq('user_id', user.id);
 
   const roleMap: Record<string, string[]> = {
     'superadmin': ['SUPERADMIN'],
@@ -54,9 +64,7 @@ export default async function DashboardRolePage(props: any) {
   const allowedDbRoles = roleMap[role] || [];
   let serverRole = 'MEMBER';
   
-  if (clubId?.startsWith('Scms-')) {
-    // If it's a mock club, we bypass server-side role validation
-    // The client-side AuthContext will enforce role restrictions
+  if (normalizedClubId?.startsWith('Scms-')) {
     const roleKey = Object.keys(roleMap).find(key => key === role);
     if (roleKey) serverRole = roleMap[roleKey][0] || 'MEMBER';
   } else {
@@ -65,10 +73,15 @@ export default async function DashboardRolePage(props: any) {
     }
     
     // Find a matching role from their returned roles
-    const matchingRole = userRoles.find(r => allowedDbRoles.includes(r.role));
+    const matchingRole = userRoles.find(r => {
+      if (!allowedDbRoles.includes(r.role)) return false;
+      if (['SUPERADMIN', 'SYSTEM_ADMIN', 'OBSERVER'].includes(r.role)) return true;
+      if (normalizedClubId && r.club_id && r.club_id !== normalizedClubId) return false;
+      if (normalizedBranchId && r.branch_id && r.branch_id !== normalizedBranchId) return false;
+      return true;
+    });
 
     if (role !== 'guest' && !matchingRole) {
-      // Unauthorized context or role
       redirect('/api/auth/route-dispatch');
     }
     
@@ -80,8 +93,8 @@ export default async function DashboardRolePage(props: any) {
     <WorkspaceView 
       initialModule="dashboard" 
       serverRole={serverRole} 
-      clubId={clubId || undefined}
-      branchId={branchId || undefined}
+      clubId={normalizedClubId || undefined}
+      branchId={normalizedBranchId || undefined}
     />
   );
 }
