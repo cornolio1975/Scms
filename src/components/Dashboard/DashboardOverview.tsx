@@ -31,6 +31,7 @@ import {
   RefreshCw,
   GitBranch,
   Edit2,
+  Cloud,
 } from 'lucide-react';
 
 interface DashboardOverviewProps {
@@ -38,7 +39,9 @@ interface DashboardOverviewProps {
 }
 
 export default function DashboardOverview({ onSelectModule }: DashboardOverviewProps) {
-  const { activeRole, activeClub, activeBranch, currentUser } = useAuth();
+  const { activeRole, activeClub, activeBranch, currentUser, refreshSession } = useAuth();
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+  const [cloudSyncFeedback, setCloudSyncFeedback] = useState<string>('');
   const [liveTournaments, setLiveTournaments] = useState<KarateTechTournament[]>([]);
   const [loadingTournaments, setLoadingTournaments] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -48,6 +51,27 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
   const [metricsUpdatedAt, setMetricsUpdatedAt] = useState('');
   const isSuperAdmin = ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole);
   const [metricsRefresh, setMetricsRefresh] = useState(0);
+
+
+  const handleSyncCloud = async () => {
+    setIsCloudSyncing(true);
+    setCloudSyncFeedback('');
+    try {
+      if (refreshSession) {
+        await refreshSession();
+      }
+      setMetricsRefresh(v => v + 1);
+      await syncTournaments();
+      setCloudSyncFeedback('Synced with cloud successfully');
+      setTimeout(() => setCloudSyncFeedback(''), 4000);
+    } catch (err) {
+      console.error('Cloud sync error:', err);
+      setCloudSyncFeedback('Cloud sync failed. Please retry.');
+      setTimeout(() => setCloudSyncFeedback(''), 5000);
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  };
 
   const syncTournaments = async () => {
     setIsSyncing(true);
@@ -183,6 +207,16 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
           )}
 
           <button
+            onClick={handleSyncCloud}
+            disabled={isCloudSyncing}
+            className="px-4 py-2 rounded-xl bg-sky-950/40 border border-white/20 text-white font-bold text-xs hover:bg-sky-950/60 shadow-xs transition-colors flex items-center space-x-1.5 touch-target disabled:opacity-60"
+            title="Sync live database and cloud state across devices"
+          >
+            <Cloud size={14} className={isCloudSyncing ? "text-sky-300 animate-pulse" : "text-sky-300"} />
+            <RefreshCw size={12} className={isCloudSyncing ? "animate-spin" : ""} />
+            <span>{isCloudSyncing ? "Syncing..." : "Sync Cloud"}</span>
+          </button>
+          <button
             onClick={() => onSelectModule('kt-tournaments')}
             className="px-4 py-2 rounded-xl bg-sky-950/40 border border-white/20 text-white font-bold text-xs hover:bg-sky-950/60 shadow-xs transition-colors flex items-center space-x-1.5 touch-target"
           >
@@ -200,6 +234,20 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
           <button onClick={() => setMetricsRefresh(value => value + 1)} className="text-sky-700 font-semibold touch-target">
             Refresh totals
           </button>
+        </div>
+      )}
+
+      {cloudSyncFeedback && (
+        <div
+          role="status"
+          className={`text-xs px-4 py-2.5 rounded-xl flex items-center space-x-2 font-medium transition-all ${
+            cloudSyncFeedback.includes('failed')
+              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+          }`}
+        >
+          <Cloud size={14} className={cloudSyncFeedback.includes('failed') ? 'text-rose-500' : 'text-emerald-500'} />
+          <span>{cloudSyncFeedback}</span>
         </div>
       )}
 
