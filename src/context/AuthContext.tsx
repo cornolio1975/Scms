@@ -76,6 +76,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setTimeout(() => resolve({ timeout: true }), 3500)
       );
 
+      // Trigger background sync of all cloud entities into store
+      store.syncFromCloud().catch(err => console.warn('Background syncFromCloud error:', err));
+
       const fetchPromise = Promise.all([
         supabase.from('clubs').select('*').order('name'),
         supabase.from('club_branches').select('*').order('name')
@@ -434,6 +437,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshSession = async () => {
+    try {
+      await store.syncFromCloud();
+    } catch (e) {
+      console.warn('store.syncFromCloud non-fatal error during session refresh:', e);
+    }
     await loadSession();
   };
 

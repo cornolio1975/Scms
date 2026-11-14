@@ -62,6 +62,46 @@ export async function getPlatformKpisAction() {
 }
 
 /**
+ * Synchronize all database data across all clubs and branches
+ * Authoritatively reads clubs, branches, members, profiles, roles, and approvals
+ */
+export async function syncAllCloudDataAction() {
+  try {
+    const adminClient = getAdminClient();
+    if (!adminClient) {
+      return { success: false, error: 'Database service unavailable' };
+    }
+
+    const [clubsRes, branchesRes, membersRes, approvalsRes, profilesRes, rolesRes] = await Promise.all([
+      adminClient.from('clubs').select('*').order('name'),
+      adminClient.from('club_branches').select('*').order('name'),
+      adminClient.from('members').select('*').order('created_at', { ascending: false }),
+      adminClient.from('approval_requests').select('*').order('created_at', { ascending: false }),
+      adminClient.from('profiles').select('*'),
+      adminClient.from('user_roles').select('*'),
+    ]);
+
+    return {
+      success: true,
+      data: {
+        clubs: clubsRes.data || [],
+        branches: branchesRes.data || [],
+        members: membersRes.data || [],
+        approvals: approvalsRes.data || [],
+        profiles: profilesRes.data || [],
+        userRoles: rolesRes.data || [],
+      }
+    };
+  } catch (err: any) {
+    console.error('syncAllCloudDataAction error:', err);
+    return {
+      success: false,
+      error: err.message || 'Failed to sync cloud data'
+    };
+  }
+}
+
+/**
  * Filtered & Paginated Clubs List
  */
 export async function getClubsListAction(params: {

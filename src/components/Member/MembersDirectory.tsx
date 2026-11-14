@@ -476,6 +476,16 @@ export default function MembersDirectory({
   useEffect(() => {
     fetchMembers();
     fetchParentsAndGuardians();
+    const handleSync = () => {
+      fetchMembers();
+      fetchParentsAndGuardians();
+    };
+    window.addEventListener('scms:cloud-synced', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('scms:cloud-synced', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
   }, [fetchMembers, fetchParentsAndGuardians]);
 
   // Modals state

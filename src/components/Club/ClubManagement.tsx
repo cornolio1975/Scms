@@ -131,6 +131,15 @@ export default function ClubManagement({ clubId, branchId, initialTab = 'profile
       }
     }
     loadAllClubs();
+    const handleSync = () => {
+      loadAllClubs();
+    };
+    window.addEventListener('scms:cloud-synced', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('scms:cloud-synced', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
   }, [isSuperAdmin, supabase]);
 
   // Load current club and branches

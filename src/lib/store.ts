@@ -7,6 +7,7 @@ import type {
   Club,
   ClubBranch,
   Member,
+  MemberStatus,
   Volunteer,
   VolunteerAssignment,
   TrainingGroup,
@@ -541,6 +542,252 @@ class ScmsStore {
       localStorage.setItem('scms_mock_volunteer_assignment_members', JSON.stringify(this.volunteerAssignmentMembers));
     }
   }
+
+  /**
+   * Authoritatively synchronizes data from Supabase across all clubs, branches, members, and approvals.
+   */
+  async syncFromCloud(): Promise<{
+    success: boolean;
+    clubs: number;
+    branches: number;
+    members: number;
+    approvals: number;
+  }> {
+    try {
+      let cloudData: {
+        clubs: any[];
+        branches: any[];
+        members: any[];
+        approvals: any[];
+        profiles: any[];
+        userRoles: any[];
+      } | null = null;
+
+      // 1. Try server action first
+      try {
+        const { syncAllCloudDataAction } = await import('@/app/actions/multi-club');
+        const res = await syncAllCloudDataAction();
+        if (res.success && res.data) {
+          cloudData = res.data;
+        }
+      } catch (e) {
+        console.warn('syncAllCloudDataAction call non-fatal, falling back to direct client:', e);
+      }
+
+      // 2. Client fallback
+      if (!cloudData) {
+        try {
+          const { createClient } = await import('@/utils/supabase/client');
+          const supabase = createClient();
+          const [cRes, bRes, mRes, aRes] = await Promise.all([
+            supabase.from('clubs').select('*').order('name'),
+            supabase.from('club_branches').select('*').order('name'),
+            supabase.from('members').select('*').order('created_at', { ascending: false }),
+            supabase.from('approval_requests').select('*').order('created_at', { ascending: false }),
+          ]);
+          cloudData = {
+            clubs: cRes.data || [],
+            branches: bRes.data || [],
+            members: mRes.data || [],
+            approvals: aRes.data || [],
+            profiles: [],
+            userRoles: [],
+          };
+        } catch (e) {
+          console.error('Direct client sync error:', e);
+        }
+      }
+
+      if (!cloudData) {
+        return { success: false, clubs: 0, branches: 0, members: 0, approvals: 0 };
+      }
+
+      // 3. Process Clubs
+      if (Array.isArray(cloudData.clubs) && cloudData.clubs.length > 0) {
+        const clubMap = new Map<string, Club>();
+        this.clubs.forEach(c => clubMap.set(c.id, c));
+        cloudData.clubs.forEach((c: any) => {
+          clubMap.set(c.id, {
+            id: c.id,
+            name: c.name,
+            displayName: c.display_name,
+            shortName: c.short_name || c.display_name || c.name,
+            scoreboardAbbreviation: c.scoreboard_abbreviation,
+            sport: c.sport || 'Karate',
+            registrationNo: c.registration_no || '',
+            establishedYear: c.established_year || 2020,
+            address: c.address || '',
+            city: c.city || '',
+            state: c.state || '',
+            postcode: c.postcode || '',
+            country: c.country || 'Malaysia',
+            phone: c.phone || '',
+            email: c.email || '',
+            website: c.website,
+            logoUrl: c.logo_url,
+            description: c.description,
+            status: c.status || 'Active',
+            primaryAdminId: c.primary_admin_id,
+            createdAt: c.created_at || new Date().toISOString(),
+            updatedAt: c.updated_at || new Date().toISOString(),
+          });
+        });
+        this.clubs = Array.from(clubMap.values());
+      }
+
+      // 4. Process Branches across ALL clubs
+      if (Array.isArray(cloudData.branches) && cloudData.branches.length > 0) {
+        const branchMap = new Map<string, ClubBranch>();
+        this.branches.forEach(b => branchMap.set(b.id, b));
+        cloudData.branches.forEach((b: any) => {
+          branchMap.set(b.id, {
+            id: b.id,
+            clubId: b.club_id,
+            name: b.name,
+            displayName: b.display_name || b.name,
+            district: b.district,
+            address: b.address || '',
+            city: b.city || '',
+            state: b.state || '',
+            postcode: b.postcode || '',
+            country: b.country || 'Malaysia',
+            phone: b.phone || '',
+            email: b.email || '',
+            managerId: b.manager_id,
+            venueName: b.venue_name || b.name,
+            operatingHours: b.operating_hours,
+            status: b.status || 'Active',
+            memberCount: 0,
+            createdAt: b.created_at || new Date().toISOString(),
+            updatedAt: b.updated_at || new Date().toISOString(),
+          });
+        });
+        this.branches = Array.from(branchMap.values());
+      }
+
+      // 5. Process Members across ALL clubs and branches
+      if (Array.isArray(cloudData.members) && cloudData.members.length > 0) {
+        const memberMap = new Map<string, Member>();
+        this.members.forEach(m => memberMap.set(m.id, m));
+        cloudData.members.forEach((m: any) => {
+          const rawStatus = (m.status || 'Active').toLowerCase();
+          const status: MemberStatus = rawStatus === 'inactive' ? 'Inactive' : rawStatus === 'suspended' ? 'Suspended' : rawStatus === 'archived' ? 'Archived' : 'Active';
+          memberMap.set(m.id, {
+            id: m.id,
+            clubId: m.club_id,
+            branchId: m.branch_id,
+            userId: m.profile_id,
+            fullName: m.full_name,
+            preferredName: m.preferred_name,
+            gender: m.gender || 'Male',
+            dob: m.date_of_birth || '2000-01-01',
+            icPassport: m.ic_passport || '',
+            nationality: m.nationality || 'Malaysian',
+            email: m.email || '',
+            phone: m.phone || '',
+            emergencyContactName: m.emergency_contact?.name || '',
+            emergencyContactPhone: m.emergency_contact?.phone || '',
+            emergencyContactRelation: m.emergency_contact?.relation || '',
+            status,
+            roles: ['ATHLETE', 'MEMBER'],
+            isAthlete: true,
+            isVolunteer: false,
+            sportData: m.sport_data || {},
+            medicalNotes: m.medical_notes || '',
+            joinedDate: m.joined_date || m.created_at?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+            createdAt: m.created_at || new Date().toISOString(),
+            updatedAt: m.updated_at || new Date().toISOString(),
+          });
+        });
+        this.members = Array.from(memberMap.values());
+      }
+
+      // 6. Process Approvals
+      if (Array.isArray(cloudData.approvals) && cloudData.approvals.length > 0) {
+        const appMap = new Map<string, ApprovalRequest>();
+        this.approvals.forEach(a => appMap.set(a.id, a));
+        cloudData.approvals.forEach((a: any) => {
+          const rawStatus = (a.status || 'Pending').toLowerCase();
+          const status = rawStatus === 'approved' ? 'Approved' : rawStatus === 'rejected' ? 'Rejected' : 'Pending';
+          appMap.set(a.id, {
+            id: a.id,
+            type: (a.request_type || 'Role Assignment') as any,
+            title: (a.request_type || 'Request') + ' - ' + (a.requested_role || ''),
+            clubId: a.club_id,
+            branchId: a.branch_id,
+            submittedByUserId: a.user_id,
+            submittedByName: a.user_id,
+            submittedAt: a.created_at || new Date().toISOString(),
+            status,
+            reviewedByName: a.reviewed_by,
+            reviewedAt: a.reviewed_at,
+            payload: a.requested_data || {},
+          });
+        });
+        this.approvals = Array.from(appMap.values());
+      }
+
+      // 7. Process Profiles and Roles
+      if (Array.isArray(cloudData.profiles) && cloudData.profiles.length > 0) {
+        const userMap = new Map<string, User>();
+        this.users.forEach(u => userMap.set(u.id, u));
+        const rolesByUser = new Map<string, any[]>();
+        (cloudData.userRoles || []).forEach((r: any) => {
+          if (!rolesByUser.has(r.user_id)) rolesByUser.set(r.user_id, []);
+          rolesByUser.get(r.user_id)!.push(r);
+        });
+
+        cloudData.profiles.forEach((p: any) => {
+          const userRoles = rolesByUser.get(p.id) || [];
+          const primaryRole = userRoles[0]?.role || 'MEMBER';
+          userMap.set(p.id, {
+            id: p.id,
+            fullName: p.full_name || 'User',
+            email: p.email || '',
+            phone: p.phone || '',
+            icPassport: p.ic_passport || '',
+            status: p.status === 'ACTIVE' ? 'Active' : (p.status || 'Active'),
+            roles: userRoles.map(r => ({
+              role: r.role,
+              clubId: r.club_id,
+              branchId: r.branch_id,
+              grantedAt: p.created_at || new Date().toISOString(),
+            })),
+            activeRole: primaryRole,
+            activeClubId: userRoles[0]?.club_id,
+            activeBranchId: userRoles[0]?.branch_id,
+            createdAt: p.created_at || new Date().toISOString(),
+          });
+        });
+        this.users = Array.from(userMap.values());
+      }
+
+      this.saveState();
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('scms:cloud-synced', {
+          detail: {
+            timestamp: Date.now(),
+            clubs: cloudData.clubs.length,
+            branches: cloudData.branches.length,
+            members: cloudData.members.length,
+          }
+        }));
+        window.dispatchEvent(new Event('storage'));
+      }
+
+      return {
+        success: true,
+        clubs: cloudData.clubs.length,
+        branches: cloudData.branches.length,
+        members: cloudData.members.length,
+        approvals: cloudData.approvals.length,
+      };
+    } catch (err) {
+      console.error('store.syncFromCloud error:', err);
+      throw err;
+    }
+  }
   attendance: AttendanceRecord[] = [...INITIAL_ATTENDANCE];
   plans: MembershipPlan[] = [...INITIAL_PLANS];
   invoices: Invoice[] = [...INITIAL_INVOICES];
@@ -707,7 +954,8 @@ class ScmsStore {
   // Branch Operations
   getBranches(clubId?: string): ClubBranch[] {
     if (!clubId) return this.branches;
-    return this.branches.filter(b => b.clubId === clubId);
+    const isSenshi = clubId === 'Scms-CLUB-000001' || clubId === '11111111-1111-1111-1111-111111111111';
+    return this.branches.filter(b => b.clubId === clubId || (isSenshi && (b.clubId === 'Scms-CLUB-000001' || b.clubId === '11111111-1111-1111-1111-111111111111')));
   }
 
   updateUser(userId: string, updates: Partial<User>): boolean {
@@ -973,8 +1221,14 @@ class ScmsStore {
   // Member Operations
   getMembers(clubId?: string, branchId?: string): Member[] {
     let result = this.members;
-    if (clubId) result = result.filter(m => m.clubId === clubId);
-    if (branchId && branchId !== '__ALL__') result = result.filter(m => m.branchId === branchId);
+    if (clubId) {
+      const isSenshi = clubId === 'Scms-CLUB-000001' || clubId === '11111111-1111-1111-1111-111111111111';
+      result = result.filter(m => m.clubId === clubId || (isSenshi && (m.clubId === 'Scms-CLUB-000001' || m.clubId === '11111111-1111-1111-1111-111111111111')));
+    }
+    if (branchId && branchId !== '__ALL__') {
+      const isPuchong = branchId === 'Scms-CLUB-000001-B001' || branchId === '22222222-2222-2222-2222-222222222222';
+      result = result.filter(m => m.branchId === branchId || (isPuchong && (m.branchId === 'Scms-CLUB-000001-B001' || m.branchId === '22222222-2222-2222-2222-222222222222')));
+    }
     const seen = new Set<string>();
     return result.filter(m => {
       if (!m.id || seen.has(m.id)) return false;

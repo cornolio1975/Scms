@@ -53,20 +53,48 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
   const [metricsRefresh, setMetricsRefresh] = useState(0);
 
 
+  const [storeRevision, setStoreRevision] = useState(0);
+
+  useEffect(() => {
+    const handleSync = () => {
+      setStoreRevision(v => v + 1);
+    };
+    window.addEventListener('scms:cloud-synced', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('scms:cloud-synced', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, []);
+
   const handleSyncCloud = async () => {
     setIsCloudSyncing(true);
     setCloudSyncFeedback('');
     try {
+      // 1. Authoritatively sync all clubs, branches, members, and approvals from Supabase
+      const syncResult = await store.syncFromCloud();
+
+      // 2. Refresh AuthContext session and permissions
       if (refreshSession) {
         await refreshSession();
       }
+
+      // 3. Re-read platform KPI totals from database
       setMetricsRefresh(v => v + 1);
+
+      // 4. Force component re-render with fresh store numbers
+      setStoreRevision(v => v + 1);
+
+      // 5. Sync KarateTech tournaments
       await syncTournaments();
-      setCloudSyncFeedback('Synced with cloud successfully');
-      setTimeout(() => setCloudSyncFeedback(''), 4000);
+
+      setCloudSyncFeedback(
+        'Cloud sync complete: ' + syncResult.clubs + ' clubs, ' + syncResult.branches + ' branches, and ' + syncResult.members + ' members updated'
+      );
+      setTimeout(() => setCloudSyncFeedback(''), 5000);
     } catch (err) {
       console.error('Cloud sync error:', err);
-      setCloudSyncFeedback('Cloud sync failed. Please retry.');
+      setCloudSyncFeedback('Cloud sync failed. Please check connection and retry.');
       setTimeout(() => setCloudSyncFeedback(''), 5000);
     } finally {
       setIsCloudSyncing(false);
@@ -134,13 +162,13 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
 
   const isClubAdmin = ['CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(activeRole);
 
-  const branches = store.getBranches(activeClub?.id);
-  const members = store.getMembers(activeClub?.id, activeBranch?.id);
-  const athletes = members.filter(m => m.isAthlete);
-  const volunteers = store.getVolunteers(activeClub?.id);
-  const invoices = store.invoices.filter(i => (activeClub ? i.clubId === activeClub.id : true));
-  const totalOutstanding = invoices.reduce((acc, i) => acc + i.balanceDue, 0);
-  const openTasks = store.tasks.filter(t => t.status === 'Open');
+  const branches = React.useMemo(() => store.getBranches(activeClub?.id), [activeClub?.id, storeRevision]);
+  const members = React.useMemo(() => store.getMembers(activeClub?.id, activeBranch?.id), [activeClub?.id, activeBranch?.id, storeRevision]);
+  const athletes = React.useMemo(() => members.filter(m => m.isAthlete), [members]);
+  const volunteers = React.useMemo(() => store.getVolunteers(activeClub?.id), [activeClub?.id, storeRevision]);
+  const invoices = React.useMemo(() => store.invoices.filter(i => (activeClub ? i.clubId === activeClub.id : true)), [activeClub?.id, storeRevision]);
+  const totalOutstanding = React.useMemo(() => invoices.reduce((acc, i) => acc + i.balanceDue, 0), [invoices]);
+  const openTasks = React.useMemo(() => store.tasks.filter(t => t.status === 'Open'), [storeRevision]);
   const metric = (key: keyof PlatformKpis) => dbKpis?.[key] ?? (metricsError ? 'Unavailable' : '—');
 
   return (
