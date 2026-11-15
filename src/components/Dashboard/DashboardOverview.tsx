@@ -32,6 +32,7 @@ import {
   GitBranch,
   Edit2,
   Cloud,
+  Trash2,
 } from 'lucide-react';
 
 interface DashboardOverviewProps {
@@ -67,12 +68,12 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
     };
   }, []);
 
-  const handleSyncCloud = async () => {
+  const handleSyncCloud = async (freshStart: boolean = false) => {
     setIsCloudSyncing(true);
     setCloudSyncFeedback('');
     try {
       // 1. Authoritatively sync all clubs, branches, members, and approvals from Supabase
-      const syncResult = await store.syncFromCloud();
+      const syncResult = await store.syncFromCloud(freshStart);
 
       // 2. Refresh AuthContext session and permissions
       if (refreshSession) {
@@ -88,8 +89,9 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
       // 5. Sync KarateTech tournaments
       await syncTournaments();
 
+      const prefix = freshStart ? 'Fresh start complete (cache cleared): ' : 'Cloud sync complete: ';
       setCloudSyncFeedback(
-        'Cloud sync complete: ' + syncResult.clubs + ' clubs, ' + syncResult.branches + ' branches, and ' + syncResult.members + ' members updated'
+        prefix + syncResult.clubs + ' clubs, ' + syncResult.branches + ' branches, and ' + syncResult.members + ' members loaded'
       );
       setTimeout(() => setCloudSyncFeedback(''), 5000);
     } catch (err) {
@@ -235,7 +237,7 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
           )}
 
           <button
-            onClick={handleSyncCloud}
+            onClick={() => handleSyncCloud(false)}
             disabled={isCloudSyncing}
             className="px-4 py-2 rounded-xl bg-sky-950/40 border border-white/20 text-white font-bold text-xs hover:bg-sky-950/60 shadow-xs transition-colors flex items-center space-x-1.5 touch-target disabled:opacity-60"
             title="Sync live database and cloud state across devices"
@@ -243,6 +245,19 @@ export default function DashboardOverview({ onSelectModule }: DashboardOverviewP
             <Cloud size={14} className={isCloudSyncing ? "text-sky-300 animate-pulse" : "text-sky-300"} />
             <RefreshCw size={12} className={isCloudSyncing ? "animate-spin" : ""} />
             <span>{isCloudSyncing ? "Syncing..." : "Sync Cloud"}</span>
+          </button>
+          <button
+            onClick={() => {
+              if (window.confirm('Clear local browser cache and reload fresh database data from cloud?')) {
+                handleSyncCloud(true);
+              }
+            }}
+            disabled={isCloudSyncing}
+            className="px-3.5 py-2 rounded-xl bg-rose-950/40 border border-rose-400/30 text-rose-100 font-bold text-xs hover:bg-rose-900/60 shadow-xs transition-colors flex items-center space-x-1.5 touch-target disabled:opacity-60"
+            title="Clear all local cache and reload fresh data from cloud database"
+          >
+            <Trash2 size={13} className="text-rose-300" />
+            <span>Fresh Start</span>
           </button>
           <button
             onClick={() => onSelectModule('kt-tournaments')}

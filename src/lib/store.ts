@@ -375,7 +375,7 @@ class ScmsStore {
     if (typeof window !== 'undefined') {
       try {
         const DATA_VERSION_KEY = 'scms_data_version';
-        const CURRENT_DATA_VERSION = 'v2_production_clean_20261027';
+        const CURRENT_DATA_VERSION = 'v3_fresh_cloud_sync_20261114';
         const savedVersion = localStorage.getItem(DATA_VERSION_KEY);
         if (savedVersion !== CURRENT_DATA_VERSION) {
           localStorage.removeItem('scms_mock_users');
@@ -529,6 +529,29 @@ class ScmsStore {
     }
   }
 
+  /**
+   * Clears all local storage mock cache and resets in-memory entity arrays for a fresh start.
+   */
+  resetLocalCache(): void {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('scms_mock_users');
+      localStorage.removeItem('scms_mock_clubs');
+      localStorage.removeItem('scms_mock_branches');
+      localStorage.removeItem('scms_mock_members');
+      localStorage.removeItem('scms_mock_approvals');
+      localStorage.removeItem('scms_mock_parent_contacts');
+      localStorage.removeItem('scms_mock_athlete_guardian_relationships');
+      localStorage.removeItem('scms_mock_new_volunteer_assignments');
+      localStorage.removeItem('scms_mock_volunteer_assignment_members');
+      localStorage.setItem('scms_data_version', 'v3_fresh_cloud_sync_20261114');
+    }
+    this.clubs = [];
+    this.branches = [];
+    this.members = [];
+    this.approvals = [];
+    this.users = [];
+  }
+
   private saveState() {
     if (typeof window !== 'undefined') {
       localStorage.setItem('scms_mock_users', JSON.stringify(this.users));
@@ -546,7 +569,7 @@ class ScmsStore {
   /**
    * Authoritatively synchronizes data from Supabase across all clubs, branches, members, and approvals.
    */
-  async syncFromCloud(): Promise<{
+  async syncFromCloud(freshStart: boolean = false): Promise<{
     success: boolean;
     clubs: number;
     branches: number;
@@ -554,6 +577,9 @@ class ScmsStore {
     approvals: number;
   }> {
     try {
+      if (freshStart) {
+        this.resetLocalCache();
+      }
       let cloudData: {
         clubs: any[];
         branches: any[];
@@ -605,7 +631,7 @@ class ScmsStore {
       // 3. Process Clubs
       if (Array.isArray(cloudData.clubs) && cloudData.clubs.length > 0) {
         const clubMap = new Map<string, Club>();
-        this.clubs.forEach(c => clubMap.set(c.id, c));
+        if (!freshStart) { this.clubs.forEach(c => clubMap.set(c.id, c)); }
         cloudData.clubs.forEach((c: any) => {
           clubMap.set(c.id, {
             id: c.id,
@@ -638,7 +664,7 @@ class ScmsStore {
       // 4. Process Branches across ALL clubs
       if (Array.isArray(cloudData.branches) && cloudData.branches.length > 0) {
         const branchMap = new Map<string, ClubBranch>();
-        this.branches.forEach(b => branchMap.set(b.id, b));
+        if (!freshStart) { this.branches.forEach(b => branchMap.set(b.id, b)); }
         cloudData.branches.forEach((b: any) => {
           branchMap.set(b.id, {
             id: b.id,
@@ -668,7 +694,7 @@ class ScmsStore {
       // 5. Process Members across ALL clubs and branches
       if (Array.isArray(cloudData.members) && cloudData.members.length > 0) {
         const memberMap = new Map<string, Member>();
-        this.members.forEach(m => memberMap.set(m.id, m));
+        if (!freshStart) { this.members.forEach(m => memberMap.set(m.id, m)); }
         cloudData.members.forEach((m: any) => {
           const rawStatus = (m.status || 'Active').toLowerCase();
           const status: MemberStatus = rawStatus === 'inactive' ? 'Inactive' : rawStatus === 'suspended' ? 'Suspended' : rawStatus === 'archived' ? 'Archived' : 'Active';
@@ -705,7 +731,7 @@ class ScmsStore {
       // 6. Process Approvals
       if (Array.isArray(cloudData.approvals) && cloudData.approvals.length > 0) {
         const appMap = new Map<string, ApprovalRequest>();
-        this.approvals.forEach(a => appMap.set(a.id, a));
+        if (!freshStart) { this.approvals.forEach(a => appMap.set(a.id, a)); }
         cloudData.approvals.forEach((a: any) => {
           const rawStatus = (a.status || 'Pending').toLowerCase();
           const status = rawStatus === 'approved' ? 'Approved' : rawStatus === 'rejected' ? 'Rejected' : 'Pending';
@@ -730,7 +756,7 @@ class ScmsStore {
       // 7. Process Profiles and Roles
       if (Array.isArray(cloudData.profiles) && cloudData.profiles.length > 0) {
         const userMap = new Map<string, User>();
-        this.users.forEach(u => userMap.set(u.id, u));
+        if (!freshStart) { this.users.forEach(u => userMap.set(u.id, u)); }
         const rolesByUser = new Map<string, any[]>();
         (cloudData.userRoles || []).forEach((r: any) => {
           if (!rolesByUser.has(r.user_id)) rolesByUser.set(r.user_id, []);

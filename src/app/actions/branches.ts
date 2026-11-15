@@ -25,17 +25,17 @@ export async function createBranchAndAssignManager(formData: FormData) {
     return { error: 'Club ID and Branch Name are required.' };
   }
 
-  // 1. Verify user is CLUB_ADMIN for this club
-  const { data: adminRole } = await supabase
+  // 1. Verify user is SUPERADMIN or CLUB_ADMIN for this club
+  const { data: userRoles } = await supabase
     .from('user_roles')
-    .select('*')
-    .eq('user_id', user.id)
-    .eq('club_id', clubId)
-    .in('role', ['SUPERADMIN', 'CLUB_ADMIN', 'CLUB_CO_ADMIN'])
-    .single();
+    .select('role, club_id')
+    .eq('user_id', user.id);
 
-  if (!adminRole) {
-    return { error: 'Unauthorized: You are not a Club Admin for this club.' };
+  const isSuperAdmin = (userRoles || []).some(r => ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(r.role));
+  const isClubAdmin = (userRoles || []).some(r => ['CLUB_ADMIN', 'CLUB_CO_ADMIN'].includes(r.role) && r.club_id === clubId);
+
+  if (!isSuperAdmin && !isClubAdmin) {
+    return { error: 'Unauthorized: You are not authorized to create branches for this club.' };
   }
 
   // 3. Create the Branch
