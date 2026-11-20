@@ -43,22 +43,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const [dbClubs, setDbClubs] = useState<Club[]>([]);
   const [dbBranches, setDbBranches] = useState<ClubBranch[]>([]);
+  const [syncRevision, setSyncRevision] = useState(0);
+
+  useEffect(() => {
+    const handleSync = () => {
+      setSyncRevision(r => r + 1);
+    };
+    window.addEventListener('scms:cloud-synced', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('scms:cloud-synced', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, []);
 
   // Compute all available clubs merging DB clubs with store clubs
   const allKnownClubs = React.useMemo(() => {
     const map = new Map<string, Club>();
-    store.getClubs().forEach(c => map.set(c.id, c));
-    dbClubs.forEach(c => map.set(c.id, c));
+    const dbNames = new Set<string>();
+
+    // Prefer store clubs (populated authoritatively from syncAllCloudDataAction)
+    store.getClubs().forEach(c => {
+      const nameLower = (c.name || '').trim().toLowerCase();
+      if (!c.id.startsWith('Scms-') && nameLower) {
+        dbNames.add(nameLower);
+      }
+      map.set(c.id, c);
+    });
+
+    // Merge dbClubs
+    dbClubs.forEach(c => {
+      const nameLower = (c.name || '').trim().toLowerCase();
+      if (!c.id.startsWith('Scms-') && nameLower) {
+        dbNames.add(nameLower);
+      }
+      map.set(c.id, c);
+    });
+
+    // Remove any mock clubs whose name matches a real DB club
+    for (const [id, c] of map.entries()) {
+      if (id.startsWith('Scms-')) {
+        const nameLower = (c.name || '').trim().toLowerCase();
+        if (dbNames.has(nameLower)) {
+          map.delete(id);
+        }
+      }
+    }
+
     return Array.from(map.values());
-  }, [dbClubs]);
+  }, [dbClubs, syncRevision]);
 
   // Compute all available branches merging DB branches with store branches
   const allKnownBranches = React.useMemo(() => {
     const map = new Map<string, ClubBranch>();
-    store.getBranches().forEach(b => map.set(b.id, b));
-    dbBranches.forEach(b => map.set(b.id, b));
+    const validClubIds = new Set(allKnownClubs.map(c => c.id));
+    store.getBranches().forEach(b => {
+      if (validClubIds.has(b.clubId)) {
+        map.set(b.id, b);
+      }
+    });
+    dbBranches.forEach(b => {
+      if (validClubIds.has(b.clubId)) {
+        map.set(b.id, b);
+      }
+    });
     return Array.from(map.values());
-  }, [dbBranches]);
+  }, [dbBranches, allKnownClubs, syncRevision]);
 
   // Sync active club & branch objects
   const activeClub = activeClubId ? allKnownClubs.find(c => c.id === activeClubId) || null : null;
@@ -77,7 +127,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       );
 
       // Trigger background sync of all cloud entities into store
-      store.syncFromCloud().catch(err => console.warn('Background syncFromCloud error:', err));
+      store.syncFromCloud().then(syncRes => {
+        if (syncRes.success) {
+          setDbClubs(store.getClubs());
+          setDbBranches(store.getBranches());
+          setSyncRevision(r => r + 1);
+        }
+      }).catch(err => console.warn('Background syncFromCloud error:', err));
 
       const fetchPromise = Promise.all([
         supabase.from('clubs').select('*').order('name'),
@@ -438,7 +494,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSession = async () => {
     try {
-      await store.syncFromCloud();
+      const syncRes = await store.syncFromCloud();
+      if (syncRes.success) {
+        setDbClubs(store.getClubs());
+        setDbBranches(store.getBranches());
+        setSyncRevision(r => r + 1);
+      }
     } catch (e) {
       console.warn('store.syncFromCloud non-fatal error during session refresh:', e);
     }

@@ -81,10 +81,18 @@ export async function syncAllCloudDataAction() {
       adminClient.from('user_roles').select('*'),
     ]);
 
+    const rawClubs = clubsRes.data || [];
+    const validClubs = rawClubs.filter((c: any) =>
+      !c.name.toLowerCase().includes('test club') &&
+      !c.name.toLowerCase().includes('ui test') &&
+      !c.name.toLowerCase().includes('kt test') &&
+      !c.name.toLowerCase().includes('lf club')
+    );
+
     return {
       success: true,
       data: {
-        clubs: clubsRes.data || [],
+        clubs: validClubs,
         branches: branchesRes.data || [],
         members: membersRes.data || [],
         approvals: approvalsRes.data || [],
@@ -846,13 +854,18 @@ export async function deleteClubAction(clubId: string, operatorName: string = 'S
     // 2. Delete from Supabase if connected
     if (adminClient && !clubId.startsWith('Scms-')) {
       try {
-        await Promise.allSettled([
-          adminClient.from('club_branches').delete().eq('club_id', clubId),
-          adminClient.from('user_roles').delete().eq('club_id', clubId),
-          adminClient.from('approval_requests').delete().eq('club_id', clubId),
-          adminClient.from('club_members').delete().eq('club_id', clubId),
-          adminClient.from('clubs').delete().eq('id', clubId)
-        ]);
+        // Child tables must be deleted in foreign-key dependency order
+        await adminClient.from('scms_karatetech_participant_links').delete().eq('club_id', clubId);
+        await adminClient.from('sync_history').delete().eq('club_id', clubId);
+        await adminClient.from('sync_jobs').delete().eq('club_id', clubId);
+        await adminClient.from('member_roles').delete().eq('club_id', clubId);
+        await adminClient.from('members').delete().eq('club_id', clubId);
+        await adminClient.from('approval_requests').delete().eq('club_id', clubId);
+        await adminClient.from('user_roles').delete().eq('club_id', clubId);
+        await adminClient.from('audit_logs').delete().eq('club_id', clubId);
+        await adminClient.from('csv_history').delete().eq('club_id', clubId);
+        await adminClient.from('club_branches').delete().eq('club_id', clubId);
+        await adminClient.from('clubs').delete().eq('id', clubId);
       } catch (dbErr) {
         console.warn('Error deleting club from Supabase:', dbErr);
       }

@@ -86,6 +86,18 @@ export default function TopHeader({
   // --- User Menu State ---
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
+  // --- Reactive Sync Listener ---
+  const [, setHeaderRevision] = useState(0);
+  useEffect(() => {
+    const handleSync = () => setHeaderRevision(r => r + 1);
+    window.addEventListener('scms:cloud-synced', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('scms:cloud-synced', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, []);
+
   // Debounced Server Search
   useEffect(() => {
     if (!searchQuery.trim() || searchQuery.trim().length < 2) {

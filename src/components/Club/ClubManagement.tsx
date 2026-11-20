@@ -119,13 +119,22 @@ export default function ClubManagement({ clubId, branchId, initialTab = 'profile
     async function loadAllClubs() {
       if (!isSuperAdmin) return;
       try {
-        const { data: dbClubs } = await supabase.from('clubs').select('id, name, display_name');
-        if (dbClubs && dbClubs.length > 0) {
-          setAllClubs(dbClubs);
-        } else {
-          const { store } = await import('@/lib/store');
-          setAllClubs(store.getClubs().map(c => ({ id: c.id, name: c.name, display_name: c.displayName })));
+        const { getClubsListAction } = await import('@/app/actions/multi-club');
+        const res = await getClubsListAction({ limit: 100 });
+        if (res.success && res.clubs && res.clubs.length > 0) {
+          setAllClubs(res.clubs.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            display_name: c.display_name || c.displayName || c.name,
+          })));
+          return;
         }
+      } catch (e) {
+        console.warn('Error loading clubs via getClubsListAction:', e);
+      }
+      try {
+        const { store } = await import('@/lib/store');
+        setAllClubs(store.getClubs().map(c => ({ id: c.id, name: c.name, display_name: c.displayName || c.name })));
       } catch {
         // Fallback
       }
@@ -140,7 +149,7 @@ export default function ClubManagement({ clubId, branchId, initialTab = 'profile
       window.removeEventListener('scms:cloud-synced', handleSync);
       window.removeEventListener('storage', handleSync);
     };
-  }, [isSuperAdmin, supabase]);
+  }, [isSuperAdmin]);
 
   // Load current club and branches
   useEffect(() => {
