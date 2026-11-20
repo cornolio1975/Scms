@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function RegisterClubPage() {
@@ -15,11 +14,11 @@ export default function RegisterClubPage() {
     adminName: '',
     adminEmail: '',
     adminPhone: '',
+    password: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const router = useRouter();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -61,7 +60,7 @@ export default function RegisterClubPage() {
           </div>
           <h2 className="mt-6 text-2xl font-black text-slate-900">Registration Submitted</h2>
           <p className="mt-2 text-sm text-slate-600 font-medium">
-            Your club registration has been submitted successfully and is waiting for SuperAdmin approval.
+            Your club registration is awaiting approval. We’ll email you when your club administrator account is ready to sign in.
           </p>
           <div className="mt-8">
             <Link href="/login" className="font-bold text-[#0284C7] hover:text-[#0369A1]">
@@ -132,6 +131,14 @@ export default function RegisterClubPage() {
                 <input required type="text" name="adminPhone" value={formData.adminPhone} onChange={handleChange} className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm focus:border-[#0284C7] focus:ring-[#0284C7]" />
               </div>
             </div>
+          </div>
+
+          <div>
+            <label htmlFor="password" className="block text-xs font-bold text-slate-700 uppercase mb-1">Password *</label>
+            <input id="password" name="password" type="password" autoComplete="new-password" required minLength={8}
+              value={formData.password} onChange={handleChange}
+              className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm" />
+            <p className="mt-1 text-xs text-slate-500">Use at least 8 characters. You’ll use this password after approval.</p>
           </div>
 
           <div className="pt-4 flex flex-col space-y-4">

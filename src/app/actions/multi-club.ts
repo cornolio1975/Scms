@@ -2,6 +2,7 @@
 
 import { createClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
+import { reviewClubRegistration } from '@/lib/server/club-registration-review';
 import { readPlatformKpis } from '@/lib/platform-kpis';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 
@@ -511,6 +512,29 @@ export async function updateClubStatusAction(params: {
     const adminClient = getAdminClient();
     const effectiveApproval = params.approvalStatus || (params.status === 'Active' ? 'APPROVED' : params.status === 'Rejected' ? 'REJECTED' : 'PENDING');
 
+    if (adminClient && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(params.clubId)) {
+      const { data: club, error: clubError } = await adminClient.from('clubs')
+        .select('status, primary_admin_id').eq('id', params.clubId).maybeSingle();
+      if (clubError) throw clubError;
+      if (club?.status === 'PENDING_APPROVAL' && club.primary_admin_id) {
+        const { data: registration, error } = await adminClient.from('approval_requests')
+          .select('id').eq('club_id', params.clubId).eq('user_id', club.primary_admin_id)
+          .eq('requested_role', 'CLUB_ADMIN').eq('status', 'PENDING_APPROVAL')
+          .is('branch_id', null).maybeSingle();
+        if (error) throw error;
+        if (registration) {
+          if (params.status !== 'Active' && params.status !== 'Rejected') {
+            return { success: false, error: 'Approve or reject this club registration first.' };
+          }
+          const result = await reviewClubRegistration(adminClient, registration.id, authz.userId,
+            params.status === 'Active' ? 'APPROVE' : 'REJECT');
+          if ('error' in result) return { success: false, error: result.error };
+          revalidatePath('/dashboard');
+          return { ...result, status: params.status, approvalStatus: effectiveApproval };
+        }
+      }
+    }
+
     // 1. In-memory / Mock Store Support
     const { store } = await import('@/lib/store');
     const mockClub = store.getClubById(params.clubId) || store.getClubs().find(c => c.id === params.clubId || c.name.toLowerCase() === params.clubId.toLowerCase());
@@ -570,7 +594,7 @@ export async function updateClubStatusAction(params: {
           await adminClient.from('approval_requests').update({
             status: effectiveApproval === 'APPROVED' ? 'APPROVED' : effectiveApproval === 'REJECTED' ? 'REJECTED' : 'PENDING_APPROVAL',
             reviewed_at: new Date().toISOString()
-          }).eq('club_id', params.clubId);
+          }).eq('club_id', params.clubId).neq('requested_role', 'CLUB_ADMIN');
         } else if (mockClub) {
           await adminClient.from('clubs').update(updates).ilike('name', mockClub.name);
         }
