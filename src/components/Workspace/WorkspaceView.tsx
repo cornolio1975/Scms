@@ -44,8 +44,17 @@ export default function WorkspaceView({
   branchId,
 }: WorkspaceViewProps) {
   const { currentUser, updateProfile, activeRole, activeClub, activeBranch, switchClub, switchBranch } = useAuth();
+  const isSuperAdmin = ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole);
   const canManageApprovals = ['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN'].includes(activeRole);
   const [currentModule, setCurrentModule] = useState<string>(initialModule);
+  const isClubOperationalModule = [
+    'members', 'all-members', 'add-member', 'athletes', 'guardians', 'data-management',
+    'volunteers', 'all-volunteers', 'assignments', 'volunteer-checkin', 'volunteer-hours',
+    'coach-console', 'attendance', 'take-attendance', 'sessions', 'attendance-reports',
+    'parent-portal',
+    'membership-finance', 'invoices', 'receipts', 'membership-plans',
+    'training', 'training-groups', 'schedule'
+  ].includes(currentModule);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
@@ -118,7 +127,21 @@ export default function WorkspaceView({
               ['BRANCH_MANAGER', 'BRANCH_CO_ADMIN'].includes(activeRole) ? <BranchDashboard clubId={activeClub?.id} branchId={activeBranch?.id} onSelectModule={setCurrentModule} /> : <DashboardOverview onSelectModule={mod => setCurrentModule(mod)} />
             )}
 
-            {(currentModule === 'members' ||
+            {isSuperAdmin && isClubOperationalModule && (
+              <div className="space-y-4">
+                <div className="bg-sky-50 border border-sky-200 rounded-2xl p-4 text-xs text-sky-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div>
+                    <strong className="font-bold block text-sm">Club-Isolated Operational Portals</strong>
+                    <span>
+                      Members &amp; Athletes, Volunteers, Coach Console, Parent Portal, Attendance, Membership &amp; Fees, and Training &amp; Groups are managed separately per club. Click <strong>Manage →</strong> on a club below to open its dedicated portals.
+                    </span>
+                  </div>
+                </div>
+                <AllClubsManagement />
+              </div>
+            )}
+
+            {!isSuperAdmin && (currentModule === 'members' ||
               currentModule === 'all-members' ||
               currentModule === 'add-member' ||
               currentModule === 'athletes' ||
@@ -141,12 +164,12 @@ export default function WorkspaceView({
               />
             )}
 
-            {(currentModule === 'volunteers' ||
+            {!isSuperAdmin && (currentModule === 'volunteers' ||
               currentModule === 'all-volunteers' ||
               currentModule === 'assignments' ||
               currentModule === 'volunteer-checkin' ||
               currentModule === 'volunteer-hours') && (
-              ['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'BRANCH_MANAGER'].includes(activeRole) 
+              ['CLUB_ADMIN', 'BRANCH_MANAGER'].includes(activeRole) 
                 ? (
                   <VolunteerManagementPortal
                     key={`${activeClub?.id || clubId}-${activeBranch?.id || branchId || 'all'}`}
@@ -162,7 +185,7 @@ export default function WorkspaceView({
                 )
             )}
 
-            {(currentModule === 'coach-console' ||
+            {!isSuperAdmin && (currentModule === 'coach-console' ||
               currentModule === 'attendance' ||
               currentModule === 'take-attendance' ||
               currentModule === 'sessions' ||
@@ -174,7 +197,7 @@ export default function WorkspaceView({
               />
             )}
 
-            {currentModule === 'parent-portal' && (
+            {!isSuperAdmin && currentModule === 'parent-portal' && (
               <ParentPortal
                 key={`${activeClub?.id || clubId}-${activeBranch?.id || branchId || 'all'}`}
                 clubId={activeClub?.id || clubId}
@@ -234,7 +257,7 @@ export default function WorkspaceView({
 
             {currentModule === 'tasks' && <TaskManagement />}
 
-            {(currentModule === 'membership-finance' ||
+            {!isSuperAdmin && (currentModule === 'membership-finance' ||
               currentModule === 'invoices' ||
               currentModule === 'receipts' ||
               currentModule === 'membership-plans') && (
@@ -245,7 +268,7 @@ export default function WorkspaceView({
               />
             )}
 
-            {['training', 'training-groups', 'schedule'].includes(currentModule) && (
+            {!isSuperAdmin && ['training', 'training-groups', 'schedule'].includes(currentModule) && (
               <CoachConsole
                 key={`${activeClub?.id || clubId}-${activeBranch?.id || branchId || 'all'}`}
                 clubId={activeClub?.id || clubId}

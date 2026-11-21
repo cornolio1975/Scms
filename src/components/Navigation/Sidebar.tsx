@@ -110,13 +110,14 @@ export default function Sidebar({
           id: 'members',
           label: 'Members & Athletes',
           icon: Users,
-          roles: ['SUPERADMIN', 'SYSTEM_ADMIN', 'CLUB_ADMIN', 'CLUB_CO_ADMIN', 'BRANCH_MANAGER', 'COACH', 'REGISTRATION_OFFICER'],
+          roles: ['CLUB_ADMIN', 'CLUB_CO_ADMIN', 'BRANCH_MANAGER', 'COACH', 'REGISTRATION_OFFICER'],
         },
         {
           id: 'volunteers',
           label: 'Volunteers',
           icon: HeartHandshake,
           badge: 'Active',
+          roles: ['CLUB_ADMIN', 'CLUB_CO_ADMIN', 'BRANCH_MANAGER', 'VOLUNTEER', 'COACH', 'STAFF'],
           subItems: [
             { id: 'all-volunteers', label: 'Volunteer Registry' },
             { id: 'assignments', label: 'Assignments' },
@@ -128,19 +129,19 @@ export default function Sidebar({
           id: 'coach-console',
           label: 'Coach Console',
           icon: Award,
-          roles: ['SUPERADMIN', 'CLUB_ADMIN', 'BRANCH_MANAGER', 'COACH', 'ASSISTANT_COACH'],
+          roles: ['CLUB_ADMIN', 'BRANCH_MANAGER', 'COACH', 'ASSISTANT_COACH'],
         },
         {
           id: 'parent-portal',
           label: 'Parent Portal',
           icon: UserCheck,
-          roles: ['SUPERADMIN', 'PARENT', 'MEMBER'],
+          roles: ['PARENT', 'MEMBER'],
         },
         {
           id: 'attendance',
           label: 'Attendance',
           icon: CalendarCheck2,
-          roles: ['SUPERADMIN', 'CLUB_ADMIN', 'BRANCH_MANAGER', 'COACH', 'ASSISTANT_COACH', 'STAFF'],
+          roles: ['CLUB_ADMIN', 'BRANCH_MANAGER', 'COACH', 'ASSISTANT_COACH', 'STAFF'],
           subItems: [
             { id: 'take-attendance', label: 'Take Attendance' },
             { id: 'sessions', label: 'Classes & Sessions' },
@@ -151,7 +152,7 @@ export default function Sidebar({
           id: 'membership-finance',
           label: 'Membership & Fees',
           icon: CreditCard,
-          roles: ['SUPERADMIN', 'CLUB_ADMIN', 'BRANCH_MANAGER', 'FINANCE'],
+          roles: ['CLUB_ADMIN', 'BRANCH_MANAGER', 'FINANCE'],
           subItems: [
             { id: 'membership-plans', label: 'Plans & Renewals' },
             { id: 'invoices', label: 'Invoices & Billing' },
@@ -162,7 +163,7 @@ export default function Sidebar({
           id: 'training',
           label: 'Training & Groups',
           icon: GraduationCap,
-          roles: ['SUPERADMIN', 'CLUB_ADMIN', 'BRANCH_MANAGER', 'COACH', 'MEMBER', 'ATHLETE'],
+          roles: ['CLUB_ADMIN', 'BRANCH_MANAGER', 'COACH', 'MEMBER', 'ATHLETE'],
           subItems: [
             { id: 'training-groups', label: 'Training Groups' },
             { id: 'schedule', label: 'Training Schedule' },

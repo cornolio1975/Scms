@@ -19,6 +19,11 @@ import { updateClubProfileAction, updateBranchProfileAction } from '@/app/action
 import { createBranchAndAssignManager } from '@/app/actions/branches';
 import { validateDisplayName } from '@/lib/validation/club';
 import { testKarateTechConnection } from '@/app/actions/karatetech';
+import MembersDirectory from '@/components/Member/MembersDirectory';
+import VolunteerManagementPortal from '@/components/Volunteer/VolunteerManagementPortal';
+import CoachConsole from '@/components/Coach/CoachConsole';
+import ParentPortal from '@/components/Parent/ParentPortal';
+import FinanceModule from '@/components/Finance/FinanceModule';
 import {
   Building2,
   GitBranch,
@@ -39,13 +44,33 @@ import {
   Clock,
   ExternalLink,
   Info,
-  Search
+  Search,
+  HeartHandshake,
+  Award,
+  CalendarCheck2,
+  CreditCard,
+  GraduationCap
 } from 'lucide-react';
+
+type ClubWorkspaceTab =
+  | 'profile'
+  | 'branches'
+  | 'admin'
+  | 'approvals'
+  | 'karatetech'
+  | 'audit'
+  | 'members'
+  | 'volunteers'
+  | 'coach-console'
+  | 'parent-portal'
+  | 'attendance'
+  | 'membership-finance'
+  | 'training';
 
 interface ClubDetailsWorkspaceProps {
   clubId: string;
   onBack?: () => void;
-  initialTab?: 'profile' | 'branches' | 'admin' | 'approvals' | 'karatetech' | 'audit';
+  initialTab?: ClubWorkspaceTab;
 }
 
 export default function ClubDetailsWorkspace({
@@ -55,7 +80,8 @@ export default function ClubDetailsWorkspace({
 }: ClubDetailsWorkspaceProps) {
   const { activeRole, currentUser } = useAuth();
   const isSuperAdmin = ['SUPERADMIN', 'SYSTEM_ADMIN'].includes(activeRole);
-  const [activeTab, setActiveTab] = useState(initialTab);
+  const [activeTab, setActiveTab] = useState<ClubWorkspaceTab>(initialTab);
+  const [selectedPortalBranchId, setSelectedPortalBranchId] = useState<string>('__ALL__');
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -564,6 +590,60 @@ export default function ClubDetailsWorkspace({
             </button>
           );
         })}
+      </div>
+
+      {/* 2B. CLUB-SCOPED OPERATIONAL PORTALS BAR */}
+      <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-2">
+            Club Portals:
+          </span>
+          {[
+            { id: 'members', label: 'Members & Athletes', icon: Users },
+            { id: 'volunteers', label: 'Volunteers', icon: HeartHandshake },
+            { id: 'coach-console', label: 'Coach Console', icon: Award },
+            { id: 'parent-portal', label: 'Parent Portal', icon: UserCheck },
+            { id: 'attendance', label: 'Attendance', icon: CalendarCheck2 },
+            { id: 'membership-finance', label: 'Membership & Fees', icon: CreditCard },
+            { id: 'training', label: 'Training & Groups', icon: GraduationCap },
+          ].map(tab => {
+            const Icon = tab.icon;
+            const isSelected = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as ClubWorkspaceTab)}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  isSelected
+                    ? 'bg-[#0284C7] text-white shadow-xs'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:border-sky-300 hover:text-[#0284C7]'
+                }`}
+              >
+                <Icon size={13} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Branch Filter for Operational Portals */}
+        {['members', 'volunteers', 'coach-console', 'parent-portal', 'attendance', 'membership-finance', 'training'].includes(activeTab) && (
+          <div className="flex items-center space-x-2 px-2">
+            <GitBranch size={13} className="text-indigo-600 shrink-0" />
+            <select
+              value={selectedPortalBranchId}
+              onChange={e => setSelectedPortalBranchId(e.target.value)}
+              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0284C7]"
+            >
+              <option value="__ALL__">All Branches ({branches.length})</option>
+              {branches.map((b: any) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* 3. TAB CONTENT WORKSPACE */}
@@ -1184,6 +1264,63 @@ export default function ClubDetailsWorkspace({
             )}
           </div>
         </div>
+      )}
+
+      {/* CLUB-SCOPED OPERATIONAL PORTALS */}
+      {activeTab === 'members' && (
+        <MembersDirectory
+          key={`${clubId}-${selectedPortalBranchId}-members`}
+          clubId={clubId}
+          branchId={selectedPortalBranchId === '__ALL__' ? undefined : selectedPortalBranchId}
+        />
+      )}
+
+      {activeTab === 'volunteers' && (
+        <VolunteerManagementPortal
+          key={`${clubId}-${selectedPortalBranchId}-volunteers`}
+          clubId={clubId}
+          branchId={selectedPortalBranchId === '__ALL__' ? undefined : selectedPortalBranchId}
+        />
+      )}
+
+      {activeTab === 'coach-console' && (
+        <CoachConsole
+          key={`${clubId}-${selectedPortalBranchId}-coach`}
+          clubId={clubId}
+          branchId={selectedPortalBranchId === '__ALL__' ? undefined : selectedPortalBranchId}
+        />
+      )}
+
+      {activeTab === 'parent-portal' && (
+        <ParentPortal
+          key={`${clubId}-${selectedPortalBranchId}-parent`}
+          clubId={clubId}
+          branchId={selectedPortalBranchId === '__ALL__' ? undefined : selectedPortalBranchId}
+        />
+      )}
+
+      {activeTab === 'attendance' && (
+        <CoachConsole
+          key={`${clubId}-${selectedPortalBranchId}-attendance`}
+          clubId={clubId}
+          branchId={selectedPortalBranchId === '__ALL__' ? undefined : selectedPortalBranchId}
+        />
+      )}
+
+      {activeTab === 'membership-finance' && (
+        <FinanceModule
+          key={`${clubId}-${selectedPortalBranchId}-finance`}
+          clubId={clubId}
+          branchId={selectedPortalBranchId === '__ALL__' ? undefined : selectedPortalBranchId}
+        />
+      )}
+
+      {activeTab === 'training' && (
+        <CoachConsole
+          key={`${clubId}-${selectedPortalBranchId}-training`}
+          clubId={clubId}
+          branchId={selectedPortalBranchId === '__ALL__' ? undefined : selectedPortalBranchId}
+        />
       )}
 
       {/* MODAL: ADD BRANCH */}
