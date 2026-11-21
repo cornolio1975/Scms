@@ -11,6 +11,7 @@ interface RegistrationRequest {
   requested_role: string;
   status: string;
   created_at: string;
+  approval_email_status?: string;
   clubs: {
     name: string;
     registration_no: string;
@@ -28,6 +29,8 @@ interface RegistrationRequest {
 export default function ClubRegistrationsTab() {
   const [requests, setRequests] = useState<RegistrationRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const supabase = createClient();
 
   useEffect(() => {
@@ -41,16 +44,16 @@ export default function ClubRegistrationsTab() {
     try {
       const { data, error } = await supabase
         .from('approval_requests')
-        .select('*, clubs(*), profiles(*)')
+        .select('*, clubs(*), profiles!approval_requests_user_id_fkey(*)')
         .eq('requested_role', 'CLUB_ADMIN')
-        .eq('status', 'PENDING_APPROVAL')
+        .or('status.eq.PENDING_APPROVAL,and(status.eq.APPROVED,approval_email_status.eq.PENDING)')
         .order('created_at', { ascending: false });
 
-      if (!error && data) {
-        combinedRequests.push(...data);
-      }
+      if (error) throw error;
+      combinedRequests.push(...(data || []));
     } catch (supaErr) {
       console.warn('Supabase approval requests fetch warning:', supaErr);
+      setNotice('Unable to load club registrations. Refresh to try again.');
     }
 
     try {
@@ -89,21 +92,33 @@ export default function ClubRegistrationsTab() {
     setLoading(false);
   };
 
-  const handleAction = async (requestId: string, action: 'APPROVE' | 'REJECT') => {
+  const handleAction = async (requestId: string, action: 'APPROVE' | 'REJECT' | 'SEND_EMAIL') => {
+    setSubmitting(true);
+    setNotice(null);
     try {
       const res = await fetch('/api/admin/approve-club', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requestId, action })
       });
-      if (res.ok) {
-        setRequests(requests.filter(r => r.id !== requestId));
-      } else {
-        const errorData = await res.json();
-        alert(errorData.error || 'Failed to process request.');
+      const result = await res.json();
+      if (!res.ok) {
+        setNotice(result.error || 'Failed to process request.');
+        return;
       }
-    } catch (err) {
-      alert('Network error.');
+      if (action !== 'REJECT' && result.emailSent === false) {
+        setRequests(current => current.map(row => row.id === requestId
+          ? { ...row, status: 'APPROVED', approval_email_status: 'PENDING' }
+          : row));
+        setNotice('Club access is active. The approval email is pending. Use Retry Email to send it.');
+      } else {
+        setRequests(current => current.filter(row => row.id !== requestId));
+        if (result.emailSent) setNotice('Club approved and approval email submitted for delivery.');
+      }
+    } catch {
+      setNotice('Unable to reach SCMS. Try again.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -116,6 +131,7 @@ export default function ClubRegistrationsTab() {
       <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-sm">
         <Building2 className="mx-auto h-12 w-12 text-slate-300 mb-4" />
         <h3 className="text-lg font-bold text-slate-900 mb-1">No Pending Registrations</h3>
+        {notice && <p role="status" className="mb-2 text-sm text-slate-700">{notice}</p>}
         <p className="text-sm text-slate-500">All club registrations have been processed.</p>
       </div>
     );
@@ -123,6 +139,7 @@ export default function ClubRegistrationsTab() {
 
   return (
     <div className="space-y-4">
+      {notice && <p role="status" className="text-sm text-slate-700">{notice}</p>}
       {requests.map((req) => (
         <div key={req.id} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col sm:flex-row justify-between gap-6 hover:shadow-md transition-shadow">
           <div className="flex-1 space-y-4">
@@ -130,7 +147,7 @@ export default function ClubRegistrationsTab() {
               <div className="flex items-center space-x-2">
                 <h3 className="text-lg font-bold text-slate-900">{req.clubs?.name}</h3>
                 <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold uppercase tracking-wider">
-                  Pending Approval
+                  {req.status === 'APPROVED' ? 'Approved · Email Pending' : 'Pending Approval'}
                 </span>
               </div>
               <p className="text-sm text-slate-500 mt-1">Reg No: {req.clubs?.registration_no || 'N/A'}</p>
@@ -155,19 +172,21 @@ export default function ClubRegistrationsTab() {
           
           <div className="flex sm:flex-col justify-end gap-3 min-w-[140px]">
             <button
-              onClick={() => handleAction(req.id, 'APPROVE')}
+              disabled={submitting}
+              onClick={() => handleAction(req.id, req.status === 'APPROVED' ? 'SEND_EMAIL' : 'APPROVE')}
               className="flex-1 flex items-center justify-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors"
             >
               <CheckCircle size={16} />
-              <span>Approve</span>
+              <span>{req.status === 'APPROVED' ? 'Retry Email' : 'Approve'}</span>
             </button>
-            <button
+            {req.status !== 'APPROVED' && <button
+              disabled={submitting}
               onClick={() => handleAction(req.id, 'REJECT')}
               className="flex-1 flex items-center justify-center space-x-2 px-4 py-2.5 bg-white border border-red-200 hover:bg-red-50 text-red-600 rounded-xl text-sm font-bold transition-colors"
             >
               <XCircle size={16} />
               <span>Reject</span>
-            </button>
+            </button>}
           </div>
         </div>
       ))}

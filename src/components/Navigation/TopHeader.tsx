@@ -570,7 +570,7 @@ export default function TopHeader({
               <Building2 size={14} className="text-[#0284C7] shrink-0 group-hover:scale-110 transition-transform" />
               <div className="text-left max-w-[170px] truncate">
                 <span className="block truncate font-black text-slate-900">
-                  {activeClub ? (activeClub.displayName || activeClub.name) : 'All Registered Clubs'}
+                  {activeClub ? (activeClub.displayName || activeClub.name) : (authorizedClubs.length === 0 ? 'No Registered Clubs' : 'All Registered Clubs')}
                 </span>
                 <span className="block text-[9px] text-[#0284C7] font-semibold tracking-wide">
                   {activeClub ? `${activeClub.state || 'Active'} • ${activeClub.id.substring(0, 14)}` : `${authorizedClubs.length} Clubs Available`}
@@ -637,7 +637,7 @@ export default function TopHeader({
                   })}
                   {filteredAuthorizedClubs.length === 0 && (
                     <div className="p-4 text-center text-xs text-slate-400">
-                      No matching clubs found
+                      {authorizedClubs.length === 0 ? 'No registered clubs found' : 'No matching clubs found'}
                     </div>
                   )}
                 </div>

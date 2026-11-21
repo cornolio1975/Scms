@@ -158,7 +158,15 @@ export default function AllClubsManagement({ initialSelectedClubId }: AllClubsMa
       store.deleteClub(clubId, currentUser?.fullName || 'SuperAdmin');
 
       // 2. Server action deletion
-      await deleteClubAction(clubId, currentUser?.fullName || 'SuperAdmin');
+      const res = await deleteClubAction(clubId, currentUser?.fullName || 'SuperAdmin');
+      if (!res.success) {
+        throw new Error(res.error || 'Failed to delete club from database');
+      }
+
+      // 3. Notify application components (TopHeader, AuthContext, etc.)
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('scms:cloud-synced'));
+      }
 
       await Promise.all([loadKpis(), loadClubs()]);
     } catch (err: any) {

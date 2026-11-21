@@ -60,35 +60,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Compute all available clubs merging DB clubs with store clubs
   const allKnownClubs = React.useMemo(() => {
     const map = new Map<string, Club>();
-    const dbNames = new Set<string>();
 
-    // Prefer store clubs (populated authoritatively from syncAllCloudDataAction)
+    // Real database clubs (persisted in store via syncAllCloudDataAction / syncFromCloud)
     store.getClubs().forEach(c => {
-      const nameLower = (c.name || '').trim().toLowerCase();
-      if (!c.id.startsWith('Scms-') && nameLower) {
-        dbNames.add(nameLower);
+      if (!c.id.startsWith('Scms-') && c.id !== '11111111-1111-1111-1111-111111111111') {
+        map.set(c.id, c);
       }
-      map.set(c.id, c);
     });
 
-    // Merge dbClubs
+    // Real direct dbClubs
     dbClubs.forEach(c => {
-      const nameLower = (c.name || '').trim().toLowerCase();
-      if (!c.id.startsWith('Scms-') && nameLower) {
-        dbNames.add(nameLower);
+      if (!c.id.startsWith('Scms-') && c.id !== '11111111-1111-1111-1111-111111111111') {
+        map.set(c.id, c);
       }
-      map.set(c.id, c);
     });
-
-    // Remove any mock clubs whose name matches a real DB club
-    for (const [id, c] of map.entries()) {
-      if (id.startsWith('Scms-')) {
-        const nameLower = (c.name || '').trim().toLowerCase();
-        if (dbNames.has(nameLower)) {
-          map.delete(id);
-        }
-      }
-    }
 
     return Array.from(map.values());
   }, [dbClubs, syncRevision]);
@@ -98,12 +83,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const map = new Map<string, ClubBranch>();
     const validClubIds = new Set(allKnownClubs.map(c => c.id));
     store.getBranches().forEach(b => {
-      if (validClubIds.has(b.clubId)) {
+      if (validClubIds.has(b.clubId) && !b.id.startsWith('Scms-')) {
         map.set(b.id, b);
       }
     });
     dbBranches.forEach(b => {
-      if (validClubIds.has(b.clubId)) {
+      if (validClubIds.has(b.clubId) && !b.id.startsWith('Scms-')) {
         map.set(b.id, b);
       }
     });
@@ -343,8 +328,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [currentUser, activeClubId, activeRole, allKnownBranches]);
 
   useEffect(() => {
-    if (authorizedClubs.length > 0 && (!activeClubId || !authorizedClubs.some(c => c.id === activeClubId))) {
-      setActiveClubId(authorizedClubs[0].id);
+    if (authorizedClubs.length > 0) {
+      if (!activeClubId || !authorizedClubs.some(c => c.id === activeClubId)) {
+        setActiveClubId(authorizedClubs[0].id);
+      }
+    } else {
+      setActiveClubId(undefined);
     }
   }, [authorizedClubs, activeClubId]);
 
@@ -354,6 +343,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!activeBranchId || !authorizedBranches.some(b => b.id === activeBranchId)) {
         setActiveBranchId(authorizedBranches[0].id);
       }
+    } else {
+      setActiveBranchId(undefined);
     }
   }, [authorizedBranches, activeBranchId]);
 

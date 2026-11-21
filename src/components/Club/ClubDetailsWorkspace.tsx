@@ -290,7 +290,10 @@ export default function ClubDetailsWorkspace({
           }
         });
       }
-      setFeedback({ type: 'success', message: `Club status successfully updated to ${newStatus}.` });
+      const message = newStatus === 'Active' && res.emailSent === false
+        ? 'Club access is active. Use Retry Email in Club Registrations to send the approval email.'
+        : `Club status successfully updated to ${newStatus}.`;
+      setFeedback({ type: 'success', message });
       setIsRejectModalOpen(false);
       setRejectReason('');
       loadDetails(true);

@@ -410,73 +410,60 @@ class ScmsStore {
         }
         
         const savedClubs = localStorage.getItem('scms_mock_clubs');
-        if (savedClubs) {
-          const parsedClubs: Club[] = JSON.parse(savedClubs);
-          const clubMap = new Map<string, Club>();
-          INITIAL_CLUBS.forEach(c => clubMap.set(c.id, c));
-          parsedClubs.forEach(c => clubMap.set(c.id, { ...clubMap.get(c.id), ...c }));
-          this.clubs = Array.from(clubMap.values()).map(c => {
-            if (!c.displayName || c.displayName.trim() === '' || c.displayName.length > 30) {
-              const initial = INITIAL_CLUBS.find(init => init.id === c.id);
-              if (initial?.displayName) {
-                c.displayName = initial.displayName;
-              } else if (c.name.toLowerCase().includes('senshi')) {
-                c.displayName = 'Senshi Goju-Ryu';
-              } else if (c.name.length <= 30) {
-                c.displayName = c.name.trim();
-              } else {
-                c.displayName = c.name.trim().substring(0, 30);
-              }
-            }
-            return c;
-          });
+        if (savedClubs !== null) {
+          try {
+            const parsedClubs: Club[] = JSON.parse(savedClubs);
+            this.clubs = Array.isArray(parsedClubs)
+              ? parsedClubs.filter(c => c && c.id && !c.id.startsWith('Scms-CLUB-') && c.id !== '11111111-1111-1111-1111-111111111111')
+              : [];
+          } catch {
+            this.clubs = [];
+          }
         } else {
-          this.clubs = [...INITIAL_CLUBS];
+          this.clubs = [];
         }
         
         const savedBranches = localStorage.getItem('scms_mock_branches');
-        if (savedBranches) {
-          const parsedBranches: ClubBranch[] = JSON.parse(savedBranches);
-          const branchMap = new Map<string, ClubBranch>();
-          INITIAL_BRANCHES.forEach(b => branchMap.set(b.id, b));
-          parsedBranches.forEach(b => {
-            if (b.name === 'Dojo Puchong Perdana' && b.id === 'Scms-CLUB-000001-B001') {
-              b.name = 'Dojo Saujana Puchong (HQ)';
-            }
-            branchMap.set(b.id, { ...branchMap.get(b.id), ...b });
-          });
-          this.branches = Array.from(branchMap.values());
+        if (savedBranches !== null) {
+          try {
+            const parsedBranches: ClubBranch[] = JSON.parse(savedBranches);
+            this.branches = Array.isArray(parsedBranches)
+              ? parsedBranches.filter(b => b && b.id && !b.id.startsWith('Scms-CLUB-'))
+              : [];
+          } catch {
+            this.branches = [];
+          }
         } else {
-          this.branches = [...INITIAL_BRANCHES];
+          this.branches = [];
         }
 
         const savedApprovals = localStorage.getItem('scms_mock_approvals');
-        if (savedApprovals) {
-          const parsedApprovals: ApprovalRequest[] = JSON.parse(savedApprovals);
-          const appMap = new Map<string, ApprovalRequest>();
-          INITIAL_APPROVALS.forEach(a => appMap.set(a.id, a));
-          parsedApprovals.forEach(a => appMap.set(a.id, { ...appMap.get(a.id), ...a }));
-          this.approvals = Array.from(appMap.values());
+        if (savedApprovals !== null) {
+          try {
+            const parsedApprovals: ApprovalRequest[] = JSON.parse(savedApprovals);
+            this.approvals = Array.isArray(parsedApprovals)
+              ? parsedApprovals.filter(a => a && a.id && !a.id.startsWith('Scms-APP-'))
+              : [];
+          } catch {
+            this.approvals = [];
+          }
         } else {
-          this.approvals = [...INITIAL_APPROVALS];
+          this.approvals = [];
         }
 
         const savedMembers = localStorage.getItem('scms_mock_members');
-        const memberMap = new Map<string, Member>();
-        INITIAL_MEMBERS.forEach(m => memberMap.set(m.id, m));
-        if (savedMembers) {
+        if (savedMembers !== null) {
           try {
             const parsedMembers: Member[] = JSON.parse(savedMembers);
-            parsedMembers.forEach(m => {
-              if (m && m.id) {
-                memberMap.set(m.id, { ...memberMap.get(m.id), ...m });
-              }
-            });
+            this.members = Array.isArray(parsedMembers)
+              ? parsedMembers.filter(m => m && m.id && !m.id.startsWith('Scms-MEM-'))
+              : [];
           } catch (e) {
-            console.error('Failed to parse saved members', e);
+            this.members = [];
           }
+        } else {
+          this.members = [];
         }
-        this.members = Array.from(memberMap.values());
 
         const savedParentContacts = localStorage.getItem('scms_mock_parent_contacts');
         const pMap = new Map<string, ParentContact>();
@@ -507,23 +494,23 @@ class ScmsStore {
         this.volunteerAssignmentMembers = savedVolunteerAssignmentMembers ? JSON.parse(savedVolunteerAssignmentMembers) : [];
       } catch (e) {
         this.users = [...INITIAL_USERS];
-        this.clubs = [...INITIAL_CLUBS];
-        this.branches = [...INITIAL_BRANCHES];
-        this.members = [...INITIAL_MEMBERS];
-        this.approvals = [...INITIAL_APPROVALS];
-        this.parentContacts = [...INITIAL_PARENT_CONTACTS];
-        this.athleteGuardianRelationships = [...INITIAL_ATHLETE_GUARDIAN_RELATIONSHIPS];
+        this.clubs = [];
+        this.branches = [];
+        this.members = [];
+        this.approvals = [];
+        this.parentContacts = [];
+        this.athleteGuardianRelationships = [];
         this.newVolunteerAssignments = [];
         this.volunteerAssignmentMembers = [];
       }
     } else {
       this.users = [...INITIAL_USERS];
-      this.clubs = [...INITIAL_CLUBS];
-      this.branches = [...INITIAL_BRANCHES];
-      this.members = [...INITIAL_MEMBERS];
-      this.approvals = [...INITIAL_APPROVALS];
-      this.parentContacts = [...INITIAL_PARENT_CONTACTS];
-      this.athleteGuardianRelationships = [...INITIAL_ATHLETE_GUARDIAN_RELATIONSHIPS];
+      this.clubs = [];
+      this.branches = [];
+      this.members = [];
+      this.approvals = [];
+      this.parentContacts = [];
+      this.athleteGuardianRelationships = [];
       this.newVolunteerAssignments = [];
       this.volunteerAssignmentMembers = [];
     }
@@ -668,19 +655,8 @@ class ScmsStore {
           });
         });
 
-        // Only keep mock clubs (Scms-CLUB-*) if there is no database club with the same name or regNo
-        if (!freshStart) {
-          this.clubs.forEach(c => {
-            if (c.id.startsWith('Scms-')) {
-              const nameLower = (c.name || '').trim().toLowerCase();
-              const regLower = (c.registrationNo || '').trim().toLowerCase();
-              if (!dbNames.has(nameLower) && (!regLower || !dbRegNos.has(regLower))) {
-                clubMap.set(c.id, c);
-              }
-            }
-          });
-        }
-
+        // In cloud sync, Supabase is the single authoritative source of truth.
+        // Never retain mock clubs (Scms-CLUB-* or 11111111-*) when syncing from cloud.
         this.clubs = Array.from(clubMap.values());
       }
 
@@ -714,15 +690,7 @@ class ScmsStore {
           });
         });
 
-        // Only keep mock branches if they belong to a surviving club
-        if (!freshStart) {
-          this.branches.forEach(b => {
-            if (b.id.startsWith('Scms-') && validClubIds.has(b.clubId)) {
-              branchMap.set(b.id, b);
-            }
-          });
-        }
-
+        // In cloud sync, Supabase is authoritative. Never retain mock branches.
         this.branches = Array.from(branchMap.values());
       }
 
